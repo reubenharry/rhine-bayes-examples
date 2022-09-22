@@ -1,0 +1,86 @@
+name:                physics
+version:             0.1.0.0
+github:              "githubuser/physics"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2022 Author name here"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/physics#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+  dependencies:
+  - monad-bayes
+  - dunai
+  - rhine
+  - hamilton
+  - gloss
+  - log-domain
+  - rhine-gloss
+  - transformers
+  - vector
+  - vector-sized
+  - hmatrix
+  - statistics
+  - containers
+  - mmorph
+  default-extensions:
+    - RankNTypes
+    - Arrows
+    - ScopedTypeVariables
+    - TypeFamilies
+    - FlexibleContexts
+    - NamedFieldPuns
+    - PatternSynonyms
+    - DataKinds
+    - BlockArguments
+    - FlexibleInstances
+    - MultiParamTypeClasses
+    - ConstraintKinds
+
+executables:
+  physics-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    # - -threaded
+    - -O2
+    dependencies:
+    - physics
+
+tests:
+  physics-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - physics
