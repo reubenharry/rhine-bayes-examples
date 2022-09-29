@@ -1,4 +1,4 @@
-# Real Time Inference
+# Agents that update their beliefs in real time
 
 ![Particle filter](notebooks/basic-tracker.gif)
 
@@ -21,7 +21,7 @@ Finally, it receives the statement "The particle is green", and so resolves its 
 
 # The code
 
-The code is written in a *probabilistic programming library* in the language Haskell. The model for the first example looks like this:
+The code is written in a *probabilistic programming library* in the functional programming language Haskell. The model for the first example looks like this:
 
 ```haskell
 prior :: StochasticProcess Position
@@ -36,7 +36,7 @@ prior = fmap V.fromTuple $ model1D &&& model1D where
 ```
 
 
-The `prior` describes how the system's `prior` knowledge of how the green particle moves.
+The `prior` describes the system's prior knowledge of how the green particle moves.
 
 ```haskell
 generativeModel :: ConditionalStochasticProcess Position Observation
