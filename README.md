@@ -36,7 +36,7 @@ prior = fmap V.fromTuple $ model1D &&& model1D where
 ```
 
 
-The `prior` describes the system's prior knowledge of how the green particle moves.
+The `prior` describes the system's prior knowledge of how the green particle moves. Note that `prior` is a *time-varying* distribution, i.e. a stochastic process. This is reflected in the type of `prior`. Next, the generative model:
 
 ```haskell
 generativeModel :: ConditionalStochasticProcess Position Observation
@@ -47,7 +47,7 @@ generativeModel = proc p -> do
         noise = constM (normal 0 std)
 ```
 
-The `generativeModel` generates a process describing observations given the process describing the true position.
+`generativeModel` generates a process describing observations *given* the process describing the true position. Again, this is reflected in its type. Then the posterior:
 
 ```haskell
 posterior :: UnnormalizedConditionalStochasticProcess Observation Position
@@ -58,14 +58,14 @@ posterior = proc (V2 oX oY) -> do
   returnA -< latent
 ```
 
-Given a process representing incoming observations, the `posterior` is a process representing the inferred position of the particle. We cannot sample from it yet, because it is unnormalized.
+Given a process representing incoming observations, `posterior` is a process representing the inferred position of the particle. We cannot sample from it yet, because it is unnormalized.
 
 ```haskell
 inference :: ConditionalStochasticProcess Observation [(Position, Weight)]
 inference =  onlineSMC SMCConfig {numParticles = 100, resampler = resampleMultinomial} posterior
 ```
 
-The `onlineSMC` inference method takes the posterior, and produces a normalized conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations.
+The `onlineSMC` inference method takes the posterior, and produces a (normalized) conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
 # The approach
 
 This is all implemented using a combination of (1) a paradigm for representing Bayesian probability and inference known as **probabilistic programming**, and (2) a paradigm for representing real-time interactive systems known as (functional) **reactive programming**.
