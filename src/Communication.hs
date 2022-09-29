@@ -3,7 +3,7 @@
 module Communication where
 import Data.MonadicStreamFunction
 import qualified Control.Category as C
-import Control.Monad.Bayes.Class (factor, MonadInfer, condition, MonadSample (uniformD, random, normal), normalPdf)
+import Control.Monad.Bayes.Class (factor, MonadInfer, condition, MonadSample (uniformD, random, normal, logCategorical), normalPdf)
 import Control.Monad.Bayes.Sampler
 import Inference
 import Control.Monad.Bayes.Population
@@ -28,15 +28,99 @@ import qualified Example
 import Control.Monad.Trans.Reader (ReaderT)
 import Data.Coerce (coerce)
 import qualified Control.Monad.Morph as MM
+import Data.Maybe
+import qualified Debug.Trace as D
+import qualified Data.Vector as VV
+import Control.Monad.Bayes.Weighted
 
+type World = Int
+type Utterance = Int
+
+
+
+truthfulSpeaker :: MonadInfer m => MSF m World Utterance
+truthfulSpeaker = proc state -> do
+  utterance <- constM $ uniformD [1, 2, 3] -< ()
+  arrM condition -< sem state utterance
+  returnA -< utterance
+
+sem :: World -> Utterance -> Bool
+sem = (>=)
+
+listener :: MonadInfer m => MSF m Utterance World
+listener = proc utterance -> do
+  state <- constM $ uniformD [1,2,3] -< ()
+  utterance' <- truthfulSpeaker -< state 
+  arrM condition -< utterance == utterance'
+  -- utterance' <- onlineSMC' 10 resampleMultinomial  truthfulSpeaker -< state
+  -- let pmf = foldr (\(k,v) -> M.alter (\case Nothing -> Just v; Just a -> Just (v+a)) k) mempty utterance'
+  -- arrM factor -< fromMaybe 0 $ M.lookup utterance pmf
+  returnA -< state
+
+speaker :: (MonadInfer m, MonadIO m) => MSF m World Utterance
+speaker = proc state -> do
+  utterance <- truthfulSpeaker -< state
+  -- state' <- listener -< utterance
+  -- arrM condition -< state' == state
+  state' <- onlineSMC' 100 resampleMultinomial listener -< utterance
+  let pmf = foldr (\(k,v) -> M.alter (\case Nothing -> Just v; Just a -> Just (v+a)) k) mempty state'
+  let mass = (**10) $ fromMaybe 1 $ M.lookup state (pmf)
+  -- arrM (liftIO . print) -< (utterance, mass)
+  arrM factor -< mass
+  returnA -< utterance
+
+-- traceIt x = D.trace (show x) x
+
+pragmatics = sampleIO $ reactimate proc () -> do 
+  w <- constM (read <$> liftIO getLine) -< ()
+  u <- onlineSMC' 100 (resampleMultinomial . resampleMultinomial) speaker -< w
+  arrM (liftIO . print) -< averageOf $ fmap (first fromIntegral) u
+  returnA -< ()
+
+pragmaticsL = sampleIO $ reactimate proc () -> do 
+  u <- constM (read <$> liftIO getLine) -< ()
+  w <- onlineSMC' 1000 (resampleMultinomial . resampleMultinomial) listener -< u
+  arrM (liftIO . print) -< averageOf $ fmap (first fromIntegral) w
+  returnA -< ()
 
 -- simplest model:
-  -- you know the state (up to uncertainty). you know (s, a) -> o
+  -- 
 
-  -- so concretely:
-    -- type State = (Double, Double)
-    -- type Observation = Double
-    -- generativeModel :: MSF (State, Action) Observation
+unbiased x = do
+   let ps = VV.fromList $ snd <$> x
+   let xs = fst <$> x
+   i <- logCategorical ps
+   return (xs !! i)
+
+  -- utterance <- truthfulSpeaker -< state
+time = sampleIO $ reactimate proc () -> do
+  rec
+    samples <- onlineSMC' 100 (resampleMultinomial) speaker -< 2
+    u <- arrM unbiased -< samples
+    samples2 <- onlineSMC' 100 resampleMultinomial listener -< u
+    state <- arrM unbiased -< samples2
+  arrM (liftIO . print) -< (u, state)
+  returnA -< ()
+
+
+-- time :: (MonadInfer m, MonadIO m) => MSF m () ()
+-- time = proc () -> do
+--   -- rec
+--     u <-  truthfulSpeaker -< 1
+--     state <- listener -< u
+--     arrM (liftIO . print) -< (u, state)
+
+-- run = sampleIO $ reactimate $ (onlineSMC' 100 resampleMultinomial time >>> constM (pure ()))
+
+    -- (lState, prior) <- smc listener <- (utterance, prior)
+    -- condition $ state == lState
+    -- returnA <- utterance
+
+  -- listener = proc utterance -> do
+      -- prior <- hyperprior
+      -- state <- prior
+      -- condition $ sem state utterance
+      -- returnA state
 
     -- recursive do for interacting agents? for speaker??
 

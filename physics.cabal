@@ -26,10 +26,15 @@ source-repository head
 library
   exposed-modules:
       Communication
+      ComplexExample
       Example
+      FirstPrinciples
       Future
       HarderObservation
       Inference
+      Language
+      Loop
+      Paths
       Physics
       RMSMC
       ShowSometimes
@@ -57,7 +62,9 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+    , comonad
     , containers
+    , data-fix
     , dunai
     , gloss
     , hamilton
@@ -65,12 +72,14 @@ library
     , log-domain
     , mmorph
     , monad-bayes
+    , recursion-schemes
     , rhine
     , rhine-gloss
     , statistics
     , transformers
     , vector
     , vector-sized
+    , witch
   default-language: Haskell2010
 
 executable physics-exe

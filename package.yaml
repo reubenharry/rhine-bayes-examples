@@ -50,6 +50,10 @@ library:
   - statistics
   - containers
   - mmorph
+  - data-fix
+  - comonad
+  - recursion-schemes
+  - witch
   default-extensions:
     - RankNTypes
     - Arrows

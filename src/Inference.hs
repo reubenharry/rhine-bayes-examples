@@ -41,7 +41,14 @@ import qualified Control.Monad.Bayes.Traced.Basic as TrBas
 import qualified Control.Monad.Bayes.Traced.Static as TrStat
 
 
+-- todos
 
+-- complex monadsample streams, e.g. beta or poisson etc for next position:
+  -- or stay near circle / bounce off it
+-- bearing example
+-- user input
+-- two streams: one is a boolean and when true, means dot is in top half
+-- language
 
 
 instance MonadSample m => MonadSample (GlossConcT m) where

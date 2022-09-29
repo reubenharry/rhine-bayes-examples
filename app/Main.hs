@@ -2,6 +2,7 @@
 module Main (main) where
 
 import qualified Example
+import qualified ComplexExample
 import qualified Switch
 import qualified Physics
 -- import qualified RMSMC (gloss)
@@ -11,10 +12,15 @@ import qualified TwoStream (gloss)
 import qualified TwoObjects (gloss)
 import qualified Future
 import qualified Communication
+import qualified Paths
+import Control.Monad
+import qualified Loop
+import qualified Language
 
 main :: IO ()
-main = do 
+main = do
     putStrLn $ "Pick an option" <>
+        "\n0: Example" <>
         "\n1: Dot" <>
         "\n2: Dot tracking" <>
         "\n3: Weak prior" <>
@@ -25,10 +31,14 @@ main = do
         "\n8: Hamiltonian" <>
         "\n9: Future" <>
         "\n10: Past" <>
-        "\n11: Past of filter" <> 
-        "\n12: Active inference"
-    (num :: Integer) <- read <$> getLine 
-    case num of 
+        "\n11: Past of filter" <>
+        "\n12: Active inference" <>
+        "\n13: Paths" <>
+        "\n14: Restart" <>
+        "\n15: Language"
+    (num :: Integer) <- read <$> getLine
+    case num of
+        0 -> ComplexExample.gloss
         1 -> Example.dot
         2 -> Example.gloss
         3 -> Example.weakPrior
@@ -41,4 +51,9 @@ main = do
         10 -> Future.past
         11 -> Future.pastFilter
         12 -> Communication.example
+        13 -> Paths.gloss
+        14 -> Loop.gloss
+        15 -> Language.gloss
+        _ -> void (print "no such option")
+
 

@@ -5,7 +5,6 @@
 module Example where
 
 import qualified Data.Vector.Sized as V
-import Control.Monad.Bayes.Class
 import FRP.Rhine
 import Inference (pattern V2, V2, onlineSMC, StochasticSignal, NormalizedDistribution, StochasticSignalTransform, StochasticSignalTransformUnnormalized)
 import FRP.Rhine.Gloss
@@ -14,6 +13,7 @@ import GHC.Float
 import Control.Monad.Bayes.Sampler
 import Control.Monad.Bayes.Population
 import Control.Monad.Trans.Class
+import Control.Monad.Bayes.Class
 
 std :: Double
 std = 0.5
@@ -73,6 +73,14 @@ gloss = sampleIO $
                                 , measured = measuredPosition
                                 , latent = actualPosition
                                 }
+
+
+
+
+
+
+
+
 
 
 dot :: IO ()

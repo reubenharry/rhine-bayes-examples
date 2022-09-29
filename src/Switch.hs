@@ -51,7 +51,7 @@ switch = feedback True $ proc (_, d :: Bool) -> do
     -- t <- sinceInitS -< ()
     n <- count -< ()
     a <- constM (bernoulli 0.5) -< ()
-    returnA -< if n `mod` 120 == 0 then (if a then (-1, True) else (1, False), a) else (if d then (-1, True) else (1, False), d) -- if a then (-1) else 1 else if not a then (-1) else 1
+    returnA -< if n `mod` 50 == 0 then (if a then (-1, True) else (1, False), a) else (if d then (-1, True) else (1, False), d) -- if a then (-1) else 1 else if not a then (-1) else 1
 
 -- foo :: IO ()
 -- foo = sampleIO $ reactimateCl (waitClock @100) (switch >>> arrM (liftIO . print))
@@ -64,7 +64,7 @@ prior = fmap (first V.fromTuple . (\((d1,b1), (d2,b2)) -> ((d1,d2), (b1,b2)))) (
         acceleration <- constM (normal 0 4) -< ()
         velocity <- decayIntegral 2 -< acceleration -- Integral, dying off exponentially
         position <- decayIntegral 2 -< velocity + n
-        returnA -< (position, b)
+        returnA -< (max (-3) $ min 3 position, b)
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
@@ -121,9 +121,9 @@ visualisation = proc Result { particles, measured, latent, direction} -> do
   drawParticles -< particles
   drawBall -< (measured, 0.05, red)
   let (pos, bs) =  latent
-  arrMCl paintIO -< translate (-80) (135) $ scale 0.2 0.2 $ text ("Inferred " <> direction)
-  arrMCl paintIO -< translate (-80) 150 $ scale 0.2 0.2 $ text ("True: " <> disp bs)
   drawBall -< (pos, 0.3, withAlpha 0.5 green)
+  arrMCl paintIO -< translate (-280) (220) $ scale 0.2 0.2 $ text ("Inferred " <> direction)
+  arrMCl paintIO -< translate (-280) 250 $ scale 0.2 0.2 $ text ("True: " <> disp bs)
 
 data Result = Result
   {
