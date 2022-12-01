@@ -3,15 +3,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NamedFieldPuns #-}
+
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE TupleSections #-}
+
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Inference where
 import Control.Monad.Bayes.Population
@@ -21,34 +23,50 @@ import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import Data.Functor (($>))
 import Control.Monad.Bayes.Class
 import FRP.Rhine hiding (normalize)
-import GHC.Float (float2Double, double2Float)
 import FRP.Rhine.Gloss hiding (normalize)
 import Control.Monad.Bayes.Sampler
 import qualified Control.Monad.Trans.MSF as DunaiReader
-import Data.Tuple
 import Control.Monad.Trans.Class
 import qualified Data.Vector.Sized as V
-import Numeric.Hamilton
-import Numeric.LinearAlgebra.Static
 import Control.Monad.Trans.Identity
-import qualified Data.Vector as VVV
-import Control.Monad.Trans.List
-import Control.Applicative (Applicative(..))
-import Control.Monad.Bayes.Traced.Dynamic (Traced)
-import qualified Control.Monad.Bayes.Traced.Dynamic as Tr
 import Data.Monoid (Endo (appEndo, Endo))
-import qualified Control.Monad.Bayes.Traced.Basic as TrBas
 import qualified Control.Monad.Bayes.Traced.Static as TrStat
+import Control.Monad.Fix (MonadFix (mfix))
+import Control.Monad.Trans.MSF (ReaderT)
+import Data.Kind (Constraint)
+import GHC.Base (Type)
 
 
 -- todos
 
--- complex monadsample streams, e.g. beta or poisson etc for next position:
-  -- or stay near circle / bounce off it
+
+-- the splitting particle:
+-- real time commands:
+  -- track the position of the robot
+-- enumeratorT or analyticT for integrable observation models
+-- pmmh for static variables:
+    -- particle mass
+    -- respawning?
+-- Poisson process
+-- recurrent switching lds  
 -- bearing example
 -- user input
 -- two streams: one is a boolean and when true, means dot is in top half
 -- language
+
+hold :: Monad m => a -> MSF m (Maybe a) a
+hold a = feedback a proc (x, old) -> do
+    case x of
+        Just y -> returnA -< (y, y)
+        Nothing -> returnA -< (old, old)
+
+
+
+instance MonadFix SamplerIO where
+    mfix f = liftIO (mfix (sampleIO . f))
+
+instance MonadFix m => MonadFix (Population m) where
+    -- mfix f = undefined $ \x -> runPopulation $ f x
 
 
 instance MonadSample m => MonadSample (GlossConcT m) where
@@ -61,22 +79,15 @@ glossClock :: LiftClock (GlossConcT SamplerIO) IdentityT GlossSimClockIO
 glossClock = liftClock GlossSimClockIO
 
 
-
-onlineSMC :: forall m cl a b . Monad m =>
+particleFilter :: forall m cl a b . Monad m =>
   -- | Number of particles
   Int ->
   -- | Resampler
   (forall x . Population m x -> Population m x)
   -> ClSF (Population m) cl a b
   -> ClSF m cl a [(b, Log Double)]
-onlineSMC nParticles resampler msf = (withReaderS $ onlineSMC' nParticles resampler) msf
+particleFilter nParticles resampler = withReaderS $ particleFilter' nParticles resampler
 
-onlineRMSMC :: MonadSample m =>
-  Int
-  -> (forall x . Population m x -> Population m x)
-  -> MSF (DunaiReader.ReaderT r2 (TrStat.Traced (Population m))) a2 b
-  -> MSF (DunaiReader.ReaderT r2 m) a2 [(b, Log Double)]
-onlineRMSMC nParticles resampler msf = (withReaderS $ onlineRMSMC' nParticles resampler) msf
 
 withReaderS :: (Monad m1, Monad m2) =>
   (MSF m2 (r1, a1) b1 -> MSF m1 (r2, a2) b2)
@@ -84,23 +95,34 @@ withReaderS :: (Monad m1, Monad m2) =>
   -> MSF (DunaiReader.ReaderT r2 m1) a2 b2
 withReaderS f = DunaiReader.readerS . f . DunaiReader.runReaderS
 
-onlineSMC' :: forall m a b . Monad m =>
+particleFilter' :: forall m a b . Monad m =>
   -- | Number of particles
   Int ->
   -- | Resampler
   (forall x . Population m x -> Population m x)
   -> MSF (Population m) a b
   -> MSF m a [(b, Log Double)]
-onlineSMC' nParticles resampler msf = onlineSMC'' $ spawn nParticles $> msf
+particleFilter' nParticles resampler msf = particleFilter'' $ spawn nParticles $> msf
   where
-    onlineSMC'' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
-    onlineSMC'' msfs = MSF $ \a -> do
+    particleFilter'' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
+    particleFilter'' msfs = MSF $ \a -> do
       -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
       bAndMSFs <- runPopulation $ normalize $ resampler $ flip unMSF a =<< msfs
       -- FIXME This abominal lambda could be done away by using Weighted?
       let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
       -- FIXME This normalizes, which introduces bias, whatever that means
-      return (currentPopulation, onlineSMC'' $ fromWeightedList $ return continuations)
+      return (currentPopulation, particleFilter'' $ fromWeightedList $ return continuations)
+
+
+
+onlineRMSMC :: MonadSample m =>
+  Int
+  -> (forall x . Population m x -> Population m x)
+  -> MSF (DunaiReader.ReaderT r2 (TrStat.Traced (Population m))) a2 b
+  -> MSF (DunaiReader.ReaderT r2 m) a2 [(b, Log Double)]
+onlineRMSMC nParticles resampler = withReaderS $ onlineRMSMC' nParticles resampler
+
+
 
 onlineRMSMC' :: forall m a b . (Monad m, MonadSample m) =>
   -- | Number of particles
@@ -109,15 +131,10 @@ onlineRMSMC' :: forall m a b . (Monad m, MonadSample m) =>
   (forall x . Population m x -> Population m x)
   -> MSF (TrStat.Traced (Population m)) a b
   -> MSF m a [(b, Log Double)]
-onlineRMSMC' nParticles resampler msf = onlineRMSMC'' $ (lift $ spawn nParticles) $> msf
+onlineRMSMC' nParticles resampler msf = onlineRMSMC'' $ lift (spawn nParticles) $> msf
   where
     onlineRMSMC'' :: TrStat.Traced (Population m) (MSF (TrStat.Traced (Population m)) a b) -> MSF m a [(b, Log Double)]
-    onlineRMSMC'' msfs = MSF $ \a -> (TrStat.marginal) do
-      -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
-      -- bAndMSFs <- undefined -- composeCopies 1000 TrStat.mhStep $ flip unMSF a =<< msfs
-      -- FIXME This abominal lambda could be done away by using Weighted?
-      -- let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
-      -- FIXME This normalizes, which introduces bias, whatever that means
+    onlineRMSMC'' msfs = MSF $ \a -> TrStat.marginal
       undefined -- return (currentPopulation, onlineRMSMC'' $ lift $ fromWeightedList $ return continuations)
 
 
@@ -135,18 +152,19 @@ composeCopies k = withEndo (mconcat . replicate k)
 --   (forall x . Population m x -> Population m x)
 --   -> MSF (Population m) a b
 --   -> MSF m a [(b, Log Double)]
--- runPopulationS nParticles resampler msf = onlineSMC' $ spawn nParticles $> msf
+-- runPopulationS nParticles resampler msf = particleFilter' $ spawn nParticles $> msf
 --   where
---     onlineSMC' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
---     onlineSMC' msfs = MSF $ \a -> do
+--     particleFilter' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
+--     particleFilter' msfs = MSF $ \a -> do
 --       -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
 --       bAndMSFs <- runPopulation $ flip unMSF a =<< msfs
 --       -- FIXME This abominal lambda could be done away by using Weighted?
 --       let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
 --       -- FIXME This normalizes, which introduces bias, whatever that means
---       return (currentPopulation, onlineSMC' $ normalize $ resampler $ fromWeightedList $ return continuations)
+--       return (currentPopulation, particleFilter' $ normalize $ resampler $ fromWeightedList $ return continuations)
 
-
+observe :: (Monad m, MonadCond m) => MSF m (Log Double) ()
+observe = arrM factor
 
 pattern V1 :: a -> V.Vector 1 a
 pattern V1 x <- (V.head->x)
@@ -178,6 +196,36 @@ type StochasticSignalTransformUnnormalized c d = forall td m . (MonadInfer m, Di
 type NormalizedDistribution = MonadSample
 type UnnormalizedDistribution = MonadInfer
 
+type Unnormalized = MonadCond
+
+type Stochastic = MonadSample
+type UnnormalizedStochastic = MonadInfer
+type ReadsStdIn = MonadIO
+type InputOutput = MonadIO
+type Deterministic = Monad
+
+type Feedback = MonadFix
+
+type SignalFunction a b c = Process a b c
+
+type Process constraint a b = forall m cl . (constraint m, Time cl ~ Double) => MSF
+  (ReaderT
+     (TimeInfo cl)
+     m)
+  a
+  b
+
+type (&) :: ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint)
+type (&) c1 c2 m = (c1 m, c2 m)
+
+type NoInput = ()
+
+
+time :: Process Deterministic b Double
+time = sinceStart
 
 
 
+savediv :: (Eq p, Fractional p) => p -> p -> p
+savediv x 0 = 0
+savediv x y = x / y

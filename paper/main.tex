@@ -93,14 +93,14 @@ A natural task is to infer the true position of the data from the noisy observat
 
 In a non-reactive setting, Bayesian inference 
     a prior distribution over the latent variable `prior :: Distribution z` 
-    a generative model, which stochastically generates observations given a fixed value of z: `generativeModel :: z -> Distribution o`
+    a generative model, which stochastically generates observations given a fixed value of z: `observationModel :: z -> Distribution o`
 
 and defines a posterior using Bayes' rule, which is a function from observations to `posterior :: [o] -> Distribution z`
 
 In the reactive setting, this admits the following generalization. Given:
 
 - a prior *process* over the latent variable: `prior :: StochasticProcess () z`
-- and a function from this process to a stochastic process over observations: `generativeModel :: StochasticProcess z o`
+- and a function from this process to a stochastic process over observations: `observationModel :: StochasticProcess z o`
 
 we can define `posterior :: StochasticProcess o z`
 
@@ -122,7 +122,7 @@ In Monad-Bayes, this amounts to choosing an appropriate representation of the pr
 In particular, we can define a real-time version of Sequential Monte Carlo (aka particle filtering) which has type:
 
 ```haskell
-onlineSMC :: MonadSample m => Int ->
+particleFilter :: MonadSample m => Int ->
   -> SF (Population m) a b
   -> SF m a [(b, Log Double)]
 ```
@@ -130,7 +130,7 @@ onlineSMC :: MonadSample m => Int ->
 For instance, `posterior` as defined above is of the form `MSF (Population m) a b` (because `Population m` is an instance of `MonadInfer`). So we can write
 
 ```haskell
-inferredPosterior = onlineSMC 100 posterior :: MonadSample m => SF m a [(Position, Log Double)] 
+inferredPosterior = particleFilter 100 posterior :: MonadSample m => SF m a [(Position, Log Double)] 
 ```
 
 `observations >>> inferredPosterior` is still a stochastic process, but at a given time point, its value is a set of 100 "particles", each a possible value of type `Position`. This is precisely a particle filter.

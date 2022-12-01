@@ -21,7 +21,7 @@ import Control.Monad.Bayes.Sampler ( sampleIO )
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
 import Numeric.Hamilton ()
 import Numeric.LinearAlgebra.Static ()
-import Inference (pattern V2,  onlineSMC)
+import Inference (pattern V2,  particleFilter)
 import Example
 import qualified Data.Vector as VVV
 import Control.Monad.Bayes.Enumerator
@@ -35,8 +35,8 @@ gloss = sampleIO $
         $ reactimateCl glossClock proc () -> do
 
                 actualPosition <- prior &&& prior -< ()
-                measuredPosition <- generativeModel *** generativeModel -< actualPosition
-                samples <- onlineSMC 100 resampleMultinomial (posterior *** posterior) -< measuredPosition
+                measuredPosition <- observationModel *** observationModel -< actualPosition
+                samples <- particleFilter 100 resampleMultinomial (posterior *** posterior) -< measuredPosition
                 let (samples1, samples2) = let dist = fromListE samples in (logExplicit (fst <$> dist), logExplicit (snd <$> dist))
                 (withSideEffect_ (lift clearIO) >>> (visualisation *** visualisation)) -< (Result {
                                     particles = samples1

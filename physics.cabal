@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
+-- This file has been generated from package.yaml by hpack version 0.35.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -25,19 +25,33 @@ source-repository head
 
 library
   exposed-modules:
+      Active
+      BetaBern
+      Circular
       Communication
       ComplexExample
+      Control
+      Coordination
       Example
-      FirstPrinciples
       Future
+      GlossInput
       HarderObservation
       Inference
+      Ising
+      JSON
       Language
+      Lazy
       Loop
+      MainSF
+      NoiseLevel
       Paths
       Physics
+      PMMH
+      Pong
+      PongExample
       RMSMC
       ShowSometimes
+      Split
       Switch
       TwoObjects
       TwoStream
@@ -61,21 +75,36 @@ library
       ConstraintKinds
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      adjunctions
+    , aeson
+    , backprop
+    , base >=4.7 && <5
     , comonad
     , containers
     , data-fix
+    , distributive
     , dunai
+    , exceptions
+    , free
+    , generic-data
     , gloss
     , hamilton
+    , haskeline
     , hmatrix
+    , hmatrix-backprop
+    , keys
+    , lens
+    , lens-aeson
+    , linear
     , log-domain
+    , megaparsec
     , mmorph
     , monad-bayes
     , recursion-schemes
     , rhine
     , rhine-gloss
     , statistics
+    , text
     , transformers
     , vector
     , vector-sized

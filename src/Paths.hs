@@ -1,10 +1,10 @@
 module Paths where
 import FRP.Rhine.Gloss hiding (normalize, shift)
-import Example hiding (posterior, generativeModel, prior, glossClock)
+import Example hiding (posterior, observationModel, prior, glossClock)
 import Inference
 import Control.Monad.Bayes.Sampler
 import Control.Monad.Trans.Class
-import qualified Example hiding (posterior, generativeModel, prior)
+import qualified Example hiding (posterior, observationModel, prior)
 import Control.Monad.Bayes.Population
 import qualified Data.Vector.Sized as V
 import Control.Monad.Bayes.Class
@@ -23,16 +23,16 @@ import qualified Data.Ord as M
 type SystemState = Env Double Position
 
 prior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF m td () SystemState
-prior = fmap (\x -> env 2 (V.fromTuple x)) $ model1D &&& model1D where
+prior = fmap (\x -> env 2 (V.fromTuple x)) $ walk1D &&& walk1D where
 
-    model1D = proc _ -> do
+    walk1D = proc _ -> do
         dacceleration <- constM (normal 0 8 ) -< ()
         acceleration <- decayIntegral 1 -< dacceleration
         velocity <- decayIntegral 1 -< acceleration -- Integral, dying off exponentially
         position <- decayIntegral 1 -< velocity
-        -- arrM factor -< normalPdf acceleration 1 position
+        -- observe -< normalPdf acceleration 1 position
         -- pastPosition <- shift 50 -< position 
-        -- arrM factor -< normalPdf position 1 pastPosition
+        -- observe -< normalPdf position 1 pastPosition
         returnA -< position
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
@@ -41,14 +41,14 @@ restrictedPrior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF
 
 restrictedPrior = proc () -> do
     s@(radius, pos) <- fmap runEnv prior -< ()
-    arrM factor -< normalPdf radius 0.1 (norm pos)
+    observe -< normalPdf radius 0.1 (norm pos)
     returnA -< uncurry env s
 
 
-generativeModel :: (MonadSample m, Diff td ~ Double, TimeDomain td) => BehaviourF m td SystemState Observation
+observationModel :: (MonadSample m, Diff td ~ Double, TimeDomain td) => BehaviourF m td SystemState Observation
 
--- generativeModel :: StochasticSignalTransform Position Observation
-generativeModel = proc p -> do
+-- observationModel :: StochasticSignalTransform Position Observation
+observationModel = proc p -> do
     n <- fmap V.fromTuple $ noise &&& noise -< ()
     returnA -< n + snd (runEnv p)
 
@@ -59,7 +59,7 @@ generativeModel = proc p -> do
 -- posterior ::StochasticSignalTransformUnnormalized Observation Position
 posterior = proc (V2 oX oY) -> do
   latent@(EnvT _ (Identity (V2 trueX trueY))) <- restrictedPrior -< ()
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 shift :: Monad m => Int -> MSF m c c
@@ -71,10 +71,10 @@ gloss = sampleIO $
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
         $ reactimateCl Example.glossClock proc () -> do
             -- (actualPosition, measuredPosition) <- undefined
-            actualPosition <- onlineSMC 200 resampleMultinomial (snd . runEnv <$> restrictedPrior) -< ()
+            actualPosition <- particleFilter 200 resampleMultinomial (snd . runEnv <$> restrictedPrior) -< ()
             chooseOne <- pick -< actualPosition
-            measuredPosition <- generativeModel -< env 2 chooseOne
-            samples <- onlineSMC 200 resampleMultinomial posterior -< measuredPosition
+            measuredPosition <- observationModel -< env 2 chooseOne
+            samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = fmap (first (snd . runEnv)) samples
                                 , measured = measuredPosition

@@ -4,7 +4,7 @@ module TwoStreamContinuous where
 import Control.Monad.Bayes.Class
 import FRP.Rhine
 import qualified Data.Vector.Sized as V
-import Example hiding (posterior, generativeModel, visualisation, Result, latent, measured, stdDev, estimate, glossClock, prior)
+import Example hiding (posterior, observationModel, visualisation, Result, latent, measured, stdDev, estimate, glossClock, prior)
 import GHC.Float
 import Data.MonadicStreamFunction.InternalCore
 import FRP.Rhine.Gloss
@@ -20,13 +20,13 @@ import qualified Debug.Trace as D
 prior :: (MonadSample m, Diff td ~ Float) => BehaviourF m td () (Position, Double)
 prior = proc () -> do
     var <- doubleStream -< 1
-    m1 <- model1D -< var
-    m2 <- model1D -< var
+    m1 <- walk1D -< var
+    m2 <- walk1D -< var
     returnA -< (V.fromTuple (m1, m2), var) 
     
     where
 
-    model1D = proc var -> do
+    walk1D = proc var -> do
         acceleration <- arrM (normal 0 ) -< var
         velocity <- decayIntegral 2 -< double2Float acceleration -- Integral, dying off exponentially
         position <- decayIntegral 2 -< velocity
@@ -34,8 +34,8 @@ prior = proc () -> do
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
--- generativeModel :: NormalizedDistribution m => StochasticSignalTransform m (Position, Double) Observation
-generativeModel = proc (p, _) -> do
+-- observationModel :: NormalizedDistribution m => StochasticSignalTransform m (Position, Double) Observation
+observationModel = proc (p, _) -> do
     n <- fmap V.fromTuple $ noise &&& noise -< ()
     returnA -< p + n
 
@@ -45,7 +45,7 @@ generativeModel = proc (p, _) -> do
 posterior :: (MonadInfer m, Diff td ~ Float) => BehaviourF m td Observation (Position, Double)
 posterior = proc (V2 oX oY) -> do
   latent@(V2 trueX trueY, _) <- prior -< ()
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 
@@ -70,8 +70,8 @@ gloss = sampleIO $
             -- (withSideEffect_ (lift $ lift clearIO) >>> draw) -< bool
             latent@(actualPosition, trueD) <- prior -< ()
             -- returnA -< undefined
-            measuredPosition <- generativeModel -< latent
-            samples <- onlineSMC 100 resampleMultinomial (snd <$> posterior) -< measuredPosition
+            measuredPosition <- observationModel -< latent
+            samples <- particleFilter 100 resampleMultinomial (snd <$> posterior) -< measuredPosition
             (withSideEffect_ (lift $ lift clearIO) >>> visualisation) -< Result { estimate = 0 -- averageOf samples
                                 , stdDev = 0 -- stdDevOf (first xCoord <$> samples) + stdDevOf (first yCoord <$> samples)
                                 , measured = 0 -- measuredPosition

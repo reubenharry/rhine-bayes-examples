@@ -36,11 +36,14 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
+  # - representable-functors
   - monad-bayes
   - dunai
+  - keys
   - rhine
   - hamilton
   - gloss
+  - adjunctions
   - log-domain
   - rhine-gloss
   - transformers
@@ -51,9 +54,22 @@ library:
   - containers
   - mmorph
   - data-fix
+  - distributive
   - comonad
   - recursion-schemes
   - witch
+  - lens
+  - linear
+  - text
+  - backprop
+  - hmatrix-backprop
+  - generic-data
+  - haskeline
+  - exceptions
+  - megaparsec
+  - aeson
+  - lens-aeson
+  - free
   default-extensions:
     - RankNTypes
     - Arrows

@@ -6,7 +6,7 @@ module ComplexExample where
 
 import qualified Data.Vector.Sized as V
 import FRP.Rhine hiding (runReaderS, readerS)
-import Inference (pattern V2, V2, onlineSMC, StochasticSignal, NormalizedDistribution, StochasticSignalTransform, StochasticSignalTransformUnnormalized)
+import Inference (pattern V2, V2, particleFilter, StochasticSignal, NormalizedDistribution, StochasticSignalTransform, StochasticSignalTransformUnnormalized, observe)
 import FRP.Rhine.Gloss hiding (runReaderS, readerS)
 import Numeric.Log
 import GHC.Float
@@ -36,11 +36,11 @@ bearing (V2 x y) = atan2 (y+2) (x+2)
 
 
 prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (V.Vector 2 Double)
-prior = fmap V.fromTuple $ model1D &&& model1D
+prior = fmap V.fromTuple $ walk1D &&& walk1D
 
 
-model1D :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () Double
-model1D = proc _ -> do
+walk1D :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () Double
+walk1D = proc _ -> do
     dacceleration <- constM (normal 0 12 ) -< ()
     acceleration <- decayIntegral 1.5 -< dacceleration
     velocity <- decayIntegral 1.5 -< acceleration -- Integral, dying off exponentially
@@ -50,8 +50,8 @@ model1D = proc _ -> do
 
     where decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
-generativeModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (V.Vector 2 Double) (Double, V.Vector 2 Double)
-generativeModel = proc position@(V2 p1 p2) -> do
+observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (V.Vector 2 Double) (Double, V.Vector 2 Double)
+observationModel = proc position@(V2 p1 p2) -> do
     angle <- arr bearing -< position
     noisyAngle <- arrM (`normal` 0.001) -< angle
     noisyPosition <- arrM (`normal` std) *** arrM (`normal` std) -< (p1,p2)
@@ -61,13 +61,13 @@ posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation (V.
 -- posterior ::StochasticSignalTransformUnnormalized Observation Position
 posterior = proc (angle, V2 v1 v2) -> do
   latent <- prior -< ()
-  (predictedAngle, V2 predV1 predV2) <- generativeModel -< latent
-  arrM factor -< normalPdf predictedAngle std angle
-  arrM factor -< normalPdf predV1 std v1 * normalPdf predV2 std v2
+  (predictedAngle, V2 predV1 predV2) <- observationModel -< latent
+  observe -< normalPdf predictedAngle std angle
+  observe -< normalPdf predV1 std v1 * normalPdf predV2 std v2
   returnA -< latent
 
--- generativeModel :: StochasticSignalTransform SystemState Observation
--- generativeModel = proc ls -> do
+-- observationModel :: StochasticSignalTransform SystemState Observation
+-- observationModel = proc ls -> do
 -- --     n <- noise -< ()
 --     y <- arrM uniformD -< M.keys ls
 --     Just z <- arr (uncurry M.lookup) -< (y, ls)
@@ -80,7 +80,7 @@ posterior = proc (angle, V2 v1 v2) -> do
 -- posterior ::StochasticSignalTransformUnnormalized Observation Position
 -- posterior = proc (V2 oX oY) -> do
 --   latent@(V2 trueX trueY) <- prior -< ()
---   arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+--   observe -< normalPdf oY std trueY * normalPdf oX std trueX
 --   returnA -< latent
 
 
@@ -106,8 +106,8 @@ posterior = proc (angle, V2 v1 v2) -> do
 --         runIdentityT $ reactimateCl glossClock proc () -> do
 
 --                 actualPosition <- prior -< ()
---                 measuredPosition <- generativeModel -< actualPosition
---                 samples <- onlineSMC 50 resampleMultinomial posterior -< measuredPosition
+--                 measuredPosition <- observationModel -< actualPosition
+--                 samples <- particleFilter 50 resampleMultinomial posterior -< measuredPosition
                 -- (_, event) <- (readerS (constM (pure ()) >>> liftTransS e)) -< ()
 
 
@@ -132,8 +132,8 @@ gloss = sampleIO $
                 arrM (liftIO . print) -< n 
 
                 actualPosition <- prior -< ()
-                measuredPosition <- generativeModel -< actualPosition
-                samples <- onlineSMC 200 resampleMultinomial posterior -< measuredPosition
+                measuredPosition <- observationModel -< actualPosition
+                samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
                 -- returnA -< undefined
 
                 (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
@@ -196,19 +196,19 @@ data Result = Result
 
 -- prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () SystemState
 -- prior = proc _ -> do
---     p1 <- fmap V.fromTuple $ model1D &&& model1D -< ()
---     p2 <- fmap V.fromTuple $ model1D &&& model1D -< ()
+--     p1 <- fmap V.fromTuple $ walk1D &&& walk1D -< ()
+--     p2 <- fmap V.fromTuple $ walk1D &&& walk1D -< ()
 --     -- y <- arr (: []) -< x
 --     -- n <- count -< ()
 --     -- z <- arrM undefined -< ()
 --     returnA -< M.fromList [(0, p1), (1, p2)]
--- -- prior = fmap V.fromTuple $ model1D &&& model1D where
+-- -- prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
 -- prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (V.Vector 2 Double)
 -- prior = feedback (0,0) proc ((), fb@(fb1, fb2)) -> do
 --     which <- bernoulliProcess -< ()
---     p1 <- if which then model1D -< () else C.id -< fb1
---     p2 <- if not which then model1D -< () else C.id -< fb2
+--     p1 <- if which then walk1D -< () else C.id -< fb1
+--     p2 <- if not which then walk1D -< () else C.id -< fb2
 --     returnA -< (V.fromTuple (p1, p2), (p1,p2)) 
 
 -- bernoulliProcess :: MonadSample m => MSF (ReaderT (TimeInfo cl) m) () Bool

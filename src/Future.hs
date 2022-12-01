@@ -3,7 +3,7 @@ module Future where
 import qualified Data.Vector.Sized as V
 import Control.Monad.Bayes.Class
 import FRP.Rhine
-import Inference (pattern V2, V2, onlineSMC)
+import Inference (pattern V2, V2, particleFilter, observe)
 import FRP.Rhine.Gloss hiding (shift)
 import Numeric.Log
 import GHC.Float
@@ -11,12 +11,19 @@ import Control.Monad.Bayes.Sampler
 import Control.Monad.Bayes.Population
 import Control.Monad.Trans.Class
 import Example 
+import Control.Monad.Trans.MSF (ReaderT)
 
-futurePosterior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF m td Observation Position
+-- futurePosterior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF m td Observation Position
+futurePosterior :: MSF
+  (ReaderT
+     (TimeInfo (RescaledClock GlossSimClockIO Double))
+     (Population (GlossConcT SamplerIO)))
+  (V2 Double)
+  Position
 futurePosterior = proc (V2 oX oY) -> do
   latent <- prior -< ()
   shifted@(V2 trueX trueY) <- delayBy 15 -< latent
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 
@@ -27,8 +34,8 @@ future = sampleIO $
         $ reactimateCl glossClock proc () -> do
             actualPosition <- prior -< ()
             thePast <- delayBy 15 -< actualPosition
-            measuredPosition <- generativeModel -< thePast
-            samples <- onlineSMC 200 resampleMultinomial futurePosterior -< measuredPosition
+            measuredPosition <- observationModel -< thePast
+            samples <- particleFilter 200 resampleMultinomial futurePosterior -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = samples
                                 , measured = thePast
@@ -42,8 +49,8 @@ past = sampleIO $
         $ reactimateCl glossClock proc () -> do
             actualPosition <- prior -< ()
             thePast <- delayBy 50 -< actualPosition
-            measuredPosition <- generativeModel -< actualPosition
-            samples <- onlineSMC 200 resampleMultinomial (posterior >>> delayBy 50) -< measuredPosition
+            measuredPosition <- observationModel -< actualPosition
+            samples <- particleFilter 200 resampleMultinomial (posterior >>> delayBy 50) -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = samples
                                 , measured = thePast
@@ -57,8 +64,8 @@ pastFilter = sampleIO $
         $ reactimateCl glossClock proc () -> do
             actualPosition <- prior -< ()
             thePast <- delayBy 50 -< actualPosition
-            measuredPosition <- generativeModel -< actualPosition
-            samples <- (onlineSMC 200 resampleMultinomial posterior >>> delayBy 50) -< measuredPosition
+            measuredPosition <- observationModel -< actualPosition
+            samples <- (particleFilter 200 resampleMultinomial posterior >>> delayBy 50) -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = samples
                                 , measured = thePast

@@ -51,7 +51,7 @@ import qualified Data.Vector.Sized as V
 import Numeric.Hamilton (System, mkSystem', Phase (Phs), stepHam, fromPhase, underlyingPos, Config (cfgPositions))
 import Numeric.LinearAlgebra.Static (vec2, Sized (extract))
 import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
-import Inference (pattern V2, pattern V1, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, onlineSMC)
+import Inference (pattern V2, pattern V1, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, observe)
 import Control.Applicative
 import Control.Monad.Trans.MSF (runReader, runReaderS, readerS)
 import Data.Functor.Identity
@@ -96,8 +96,8 @@ prior = feedback (Phs 1 1) $ proc (_, phasePoint) -> do
   let next = stepHam time s phasePoint
   returnA -< (next, next)
 
-generativeModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (Phase 1) Observation
-generativeModel = proc p -> do
+observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (Phase 1) Observation
+observationModel = proc p -> do
     -- n <- fmap V.fromTuple $ noise &&& noise -< ()
     -- isOutlier <- constM (bernoulli 0.1) -< ()
     returnA -< getPos p
@@ -114,8 +114,8 @@ std = 2
 posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation (Phase 1)
 posterior = proc (V2 oX oY) -> do
   latent <- prior -< () 
-  obs@(V2 trueX trueY) <- generativeModel -< latent -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  obs@(V2 trueX trueY) <- observationModel -< latent -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 getPos pos = (\x -> V.fromTuple (0,x)) $ (V.! 0) $ extract $ underlyingPos (s 0) $ cfgPositions $ fromPhase (s 0) pos
@@ -126,9 +126,9 @@ gloss = sampleIO $
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
         $ reactimateCl glossClock proc () -> do
             actualPosition <- prior -< ()
-            measuredPosition <- generativeModel -< actualPosition
+            measuredPosition <- observationModel -< actualPosition
             n <- fmap V.fromTuple $ noise &&& noise -< ()
-            samples <- onlineSMC 100 resampleMultinomial posterior -< (measuredPosition + n)
+            samples <- particleFilter 100 resampleMultinomial posterior -< (measuredPosition + n)
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = first getPos <$> samples
                                 , measured = measuredPosition + n

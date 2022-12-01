@@ -1,7 +1,26 @@
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+
+
+
+{-# LANGUAGE ScopedTypeVariables #-}
+
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TypeOperators #-}
+
 module Loop where
 import FRP.Rhine.Gloss
-import Example hiding (posterior, generativeModel, prior)
+import Example hiding (foo, posterior, observationModel, prior)
 import Control.Monad.Bayes.Sampler
 import Inference
 import Control.Monad.Bayes.Population
@@ -11,69 +30,50 @@ import qualified Data.Vector.Sized as V
 import Data.Void
 import Control.Monad.Trans.MSF ()
 import Control.Monad.Trans.Reader
+import qualified Data.Text as T
 
-
--- prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (V.Vector 2 Double)
--- sf :: ClSF (ExceptT e m) cl a b
--- sf :: MonadIO m => ClSF (ExceptT () m) cl a ()
--- sf = (runClSFExcept $ do
---      (safe count)
---      try $ throwS
---      safe count) >>> arrM (liftIO . print)
 
 
 type SumClock = Millisecond 1
 
-fillUp :: Monad m => ClSF (ExceptT Double m) SumClock Double ()
-fillUp = proc x -> do
-  s <- integral -< x
-  _ <- throwOn' -< (s > 5, s)
-  returnA       -< ()
-
-helloWorld :: ClSFExcept IO SumClock () () Empty
-helloWorld = do
-  try $ arr (const 4) >>> fillUp
-  once_ $ putStrLn "Hello World!"
-  helloWorld
-
-foo :: (MonadSample m, Diff (Time cl) ~ Double) => ClSFExcept m cl () Position Empty
+foo :: (MonadSample m, Diff (Time cl) ~ Double, Time cl ~ Double) => ClSFExcept m cl () Position Empty
 foo = do
     try $ abortivePrior
     foo
 
-abortivePrior :: (MonadSample m, Diff (Time cl) ~ Double) => ClSF (ExceptT Position m) cl () Position
+abortivePrior :: (MonadSample m, Diff (Time cl) ~ Double, Time cl ~ Double) => ClSF (ExceptT Position m) cl () Position
 abortivePrior = proc () -> do
     x <- prior -< ()
     _ <- throwOn' -< (norm x > 2, x)
     returnA -< x
 
 
-prior :: StochasticSignal Position
-prior = fmap V.fromTuple $ model1D &&& model1D where
+prior :: SignalFunction Stochastic () Position
+prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
-    model1D = proc _ -> do
+    walk1D = proc _ -> do
         dacceleration <- constM (normal 0 8 ) -< ()
         acceleration <- integral -< dacceleration
         velocity <- integral -< acceleration -- Integral, dying off exponentially
         position <- integral -< velocity
         returnA -< position
 
-generativeModel :: StochasticSignalTransform Position Observation
-generativeModel = proc p -> do
+observationModel :: SignalFunction Stochastic Position Observation
+observationModel = proc p -> do
     n <- fmap V.fromTuple $ noise &&& noise -< ()
     returnA -< p + n
 
     where 
-        noise = constM (normal 0 std)
+        noise = constM (normal 0 0.2)
 
 
-posterior ::StochasticSignalTransformUnnormalized Observation Position
+posterior ::SignalFunction (Stochastic & Unnormalized) Observation Position
 posterior = proc (V2 oX oY) -> do
   latent@(V2 trueX trueY) <- man -< ()
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  observe -< normalPdf oY 0.2 trueY * normalPdf oX 0.2 trueX
   returnA -< latent
 
-man :: (MonadSample m, Diff (Time cl) ~ Double) => ClSF m cl () Position
+man :: (MonadSample m, Diff (Time cl) ~ Double, Time cl ~ Double) => ClSF m cl () Position
 man = safely foo 
 -- >>> arrM (liftIO . print)
 -- run = runExceptT $ reactimateCl (waitClock @100) sf
@@ -82,9 +82,9 @@ man = safely foo
 -- man2 = reactimateCl (waitClock @100) $ morphS (Control.Monad.Morph.hoist sampleIO) man
 
 -- prior = undefined
-    -- fmap V.fromTuple $ model1D &&& model1D where
+    -- fmap V.fromTuple $ walk1D &&& walk1D where
 
-    -- model1D = proc _ -> do
+    -- walk1D = proc _ -> do
     --     dacceleration <- constM (normal 0 8 ) -< ()
     --     acceleration <- decayIntegral 1 -< dacceleration
     --     velocity <- decayIntegral 1 -< acceleration -- Integral, dying off exponentially
@@ -93,15 +93,13 @@ man = safely foo
 
     -- decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl Example.glossClock proc () -> do
+
+gloss :: SignalFunction Stochastic T.Text Picture
+gloss = proc _ -> do
             actualPosition <- man -< ()
-            measuredPosition <- generativeModel -< actualPosition
-            samples <- onlineSMC 200 resampleMultinomial posterior -< measuredPosition
-            (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
+            measuredPosition <- observationModel -< actualPosition
+            samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
+            renderObjects -< Result {
                                 particles = samples
                                 , measured = measuredPosition
                                 , latent = actualPosition

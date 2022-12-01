@@ -4,7 +4,7 @@
 
 module RMSMC where
 import Control.Monad.Bayes.Population
-    ( resampleMultinomial )
+    ( resampleMultinomial, Population, runPopulation, spawn, fromWeightedList )
 import Data.MonadicStreamFunction
     ( returnA, (>>>), arrM, constM, Arrow(first, arr, (&&&)), withSideEffect_ )
 import Control.Monad.Bayes.Class
@@ -40,9 +40,14 @@ import qualified Data.Vector.Sized as V
 import Numeric.Hamilton ()
 import Numeric.LinearAlgebra.Static ()
 import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
-import Inference (pattern V2, V2, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, onlineSMC, onlineRMSMC)
+import Inference (pattern V2, V2, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, onlineRMSMC, observe)
 import Numeric.Log
 import qualified Control.Category as C
+import FRP.Rhine
+import qualified Control.Monad.Trans.MSF as DunaiReader
+import Data.MonadicStreamFunction.InternalCore
+import Data.Functor (($>))
+import qualified Control.Monad.Bayes.Population as Bayes
 
 
 std :: Double
@@ -53,9 +58,9 @@ type Position = V.Vector 2 Double
 
 
 prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () Position
-prior = fmap V.fromTuple $ model1D &&& model1D where
+prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
-    model1D = proc _ -> do
+    walk1D = proc _ -> do
         acceleration <- constM (normal 0 4 ) -< ()
         velocity <- decayIntegral 2 -< acceleration -- Integral, dying off exponentially
         position <- decayIntegral 2 -< velocity
@@ -63,8 +68,8 @@ prior = fmap V.fromTuple $ model1D &&& model1D where
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
-generativeModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td Position Observation
-generativeModel = proc p -> do
+observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td Position Observation
+observationModel = proc p -> do
     n <- fmap V.fromTuple $ noise &&& noise -< ()
     -- isOutlier <- constM (bernoulli 0.1) -< ()
     returnA -< p + n
@@ -78,8 +83,8 @@ generativeModel = proc p -> do
 posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation Position
 posterior = proc (V2 oX oY) -> do
   latent@(V2 trueX trueY) <- prior -< () -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
---   observation <- generativeModel -< latent
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+--   observation <- observationModel -< latent
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 
@@ -94,7 +99,7 @@ gloss = sampleIO $
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
         $ reactimateCl glossClock proc () -> do
             actualPosition <- prior -< ()
-            measuredPosition <- generativeModel -< actualPosition
+            measuredPosition <- observationModel -< actualPosition
             samples <- onlineRMSMC 1 resampleMultinomial posterior -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = samples
@@ -160,3 +165,36 @@ glossClock = RescaledClock
 
 
 
+particleFilter :: forall m cl a b . Monad m =>
+  -- | Number of particles
+  Int ->
+  -- | Resampler
+  (forall x . Population m x -> Population m x)
+  -> ClSF (Population m) cl a b
+  -> ClSF m cl a [(b, Log Double)]
+particleFilter nParticles resampler = withReaderS $ particleFilter' nParticles resampler
+
+
+withReaderS :: (Monad m1, Monad m2) =>
+  (MSF m2 (r1, a1) b1 -> MSF m1 (r2, a2) b2)
+  -> MSF (DunaiReader.ReaderT r1 m2) a1 b1
+  -> MSF (DunaiReader.ReaderT r2 m1) a2 b2
+withReaderS f = DunaiReader.readerS . f . DunaiReader.runReaderS
+
+particleFilter' :: forall m a b . Monad m =>
+  -- | Number of particles
+  Int ->
+  -- | Resampler
+  (forall x . Population m x -> Population m x)
+  -> MSF (Population m) a b
+  -> MSF m a [(b, Log Double)]
+particleFilter' nParticles resampler msf = particleFilter'' $ spawn nParticles $> msf
+  where
+    particleFilter'' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
+    particleFilter'' msfs = MSF $ \a -> do
+      -- TODO This is quite different than the dunai version now. Maybe it's right nevertheless.
+      bAndMSFs <- runPopulation $ Bayes.normalize $ resampler $ flip unMSF a =<< msfs
+      -- FIXME This abominal lambda could be done away by using Weighted?
+      let (currentPopulation, continuations) = unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
+      -- FIXME This normalizes, which introduces bias, whatever that means
+      return (currentPopulation, particleFilter'' $ fromWeightedList $ return continuations)

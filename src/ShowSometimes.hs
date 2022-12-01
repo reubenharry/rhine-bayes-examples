@@ -41,8 +41,8 @@ module ShowSometimes where
 -- import Numeric.Hamilton ()
 -- import Numeric.LinearAlgebra.Static ()
 -- import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
--- import Inference (pattern V2, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, averageOf, stdDevOf, onlineSMC)
--- import Example (generativeModel)
+-- import Inference (pattern V2, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, averageOf, stdDevOf, particleFilter)
+-- import Example (observationModel)
 
 -- std :: Double
 -- std = 3
@@ -52,9 +52,9 @@ module ShowSometimes where
 
 
 -- prior :: NormalizedDistribution m => StochasticSignal m Position
--- prior = fmap V.fromTuple $ model1D &&& model1D where
+-- prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
---     model1D = proc _ -> do
+--     walk1D = proc _ -> do
 --         acceleration <- constM (normal 0 5) -< ()
 --         velocity <- decayIntegral 2-< double2Float acceleration -- Integral, dying off exponentially
 --         position <- decayIntegral 2-< velocity
@@ -66,7 +66,7 @@ module ShowSometimes where
 -- posterior :: UnnormalizedDistribution m => StochasticSignalTransform m Observation Position
 -- posterior = proc (V2 oX oY) -> do
 --   latent@(V2 trueX trueY) <- prior -< ()
---   arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+--   observe -< normalPdf oY std trueY * normalPdf oX std trueX
 --   returnA -< latent
 
 
@@ -84,8 +84,8 @@ module ShowSometimes where
 --         runIdentityT $ reactimateCl glossClock proc () -> do
 
 --                 actualPosition <- prior -< ()
---                 measuredPosition <- generativeModel -< actualPosition
---                 samples <- onlineSMC 50 resampleMultinomial posterior -< measuredPosition
+--                 measuredPosition <- observationModel -< actualPosition
+--                 samples <- particleFilter 50 resampleMultinomial posterior -< measuredPosition
 --                 -- (_, event) <- (readerS (constM (pure ()) >>> liftTransS e)) -< ()
 --                 -- (readerS (constM (pure ()) >>> e) >>> arrM (lift . paintIO . text . show))
 --                 (withSideEffect_ (lift $ lift clearIO) >>> visualisation) -< Result { estimate = averageOf samples

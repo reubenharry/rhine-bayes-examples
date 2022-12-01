@@ -25,9 +25,9 @@ The code is written in a *probabilistic programming library* in the functional p
 
 ```haskell
 prior :: StochasticProcess Position
-prior = fmap V.fromTuple $ model1D &&& model1D where
+prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
-    model1D = proc _ -> do
+    walk1D = proc _ -> do
         dacceleration <- constM (normal 0 8 ) -< ()
         acceleration <- decayingIntegral -< dacceleration
         velocity <- decayingIntegral -< acceleration -- Integral, dying off exponentially
@@ -39,22 +39,22 @@ prior = fmap V.fromTuple $ model1D &&& model1D where
 The `prior` describes the system's prior knowledge of how the green particle moves. Note that `prior` is a *time-varying* distribution, i.e. a stochastic process. This is reflected in the type of `prior`. Next, the generative model:
 
 ```haskell
-generativeModel :: ConditionalStochasticProcess Position Observation
-generativeModel = proc p -> do
+observationModel :: ConditionalStochasticProcess Position Observation
+observationModel = proc p -> do
     n <- fmap V.fromTuple $ noise &&& noise -< ()
     returnA -< p + n
     where 
         noise = constM (normal 0 std)
 ```
 
-`generativeModel` generates a process describing observations *given* the process describing the true position. Again, this is reflected in its type. Then the posterior:
+`observationModel` generates a process describing observations *given* the process describing the true position. Again, this is reflected in its type. Then the posterior:
 
 ```haskell
 posterior :: UnnormalizedConditionalStochasticProcess Observation Position
 posterior = proc (V2 oX oY) -> do
   latent <- prior -< ()
-  predicted@(V2 trueX trueY) <- generativeModel -< latent
-  arrM factor -< normalPdf oY std trueY * normalPdf oX std trueX
+  predicted@(V2 trueX trueY) <- observationModel -< latent
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 ```
 
@@ -62,10 +62,10 @@ Given a process representing incoming observations, `posterior` is a process rep
 
 ```haskell
 inference :: ConditionalStochasticProcess Observation [(Position, Weight)]
-inference =  onlineSMC SMCConfig {numParticles = 100, resampler = resampleMultinomial} posterior
+inference =  particleFilter SMCConfig {numParticles = 100, resampler = resampleMultinomial} posterior
 ```
 
-The `onlineSMC` inference method takes the posterior, and produces a (normalized) conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
+The `particleFilter` inference method takes the posterior, and produces a (normalized) conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
 # The approach
 
 This is all implemented using a combination of (1) a paradigm for representing Bayesian probability and inference known as **probabilistic programming**, and (2) a paradigm for representing real-time interactive systems known as (functional) **reactive programming**.
