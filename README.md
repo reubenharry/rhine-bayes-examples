@@ -9,12 +9,6 @@ The purple swarm represents the system's guess as to the true position of the pa
 Both the simulation and the inference run **in real time**, so this gif is just a short snippet of a live demo.
 
 
-<!-- ![Particle filter](notebooks/complex.gif)
-In this more complex scenario, you again see a green particle move around stochastically, now inside a box. This time, there are no observations at first, so the system is uncertain about the position. It is also uncertain about whether the particle is green or red, as shown at the bottom.
-After a few seconds, the system receives the statement "The particle is in the box", and updates its beliefs accordingly. However, the probability about where the particle is in the box is still uncertain.
-Then, the system starts to receive noisy observations of the position, and the uncertainty decreases again.
-Finally, it receives the statement "The particle is green", and so resolves its remaining uncertainty.  -->
-
 ![Particle filter](notebooks/mutual.gif)
 
 In this case, there are two agents (corresponding to the big yellow and green circles). Each moves stochastically, but with a bias to move away from the other. However, the catch is that each agent doesn't *know* the position of the other, so they have to infer the position from noisy observations and move away from the expectation of that inferred position.
