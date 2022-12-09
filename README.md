@@ -9,17 +9,13 @@ The purple swarm represents the system's guess as to the true position of the pa
 Both the simulation and the inference run **in real time**, so this gif is just a short snippet of a live demo.
 
 
-![Particle filter](notebooks/mutual.gif)
-
+<!-- ![Particle filter](notebooks/complex.gif)
 In this more complex scenario, you again see a green particle move around stochastically, now inside a box. This time, there are no observations at first, so the system is uncertain about the position. It is also uncertain about whether the particle is green or red, as shown at the bottom.
-
 After a few seconds, the system receives the statement "The particle is in the box", and updates its beliefs accordingly. However, the probability about where the particle is in the box is still uncertain.
-
 Then, the system starts to receive noisy observations of the position, and the uncertainty decreases again.
+Finally, it receives the statement "The particle is green", and so resolves its remaining uncertainty.  -->
 
-Finally, it receives the statement "The particle is green", and so resolves its remaining uncertainty. -->
-
-![Particle filter](notebooks/two-agents.gif)
+![Particle filter](notebooks/mutual.gif)
 
 In this case, there are two agents (corresponding to the big yellow and green circles). Each moves stochastically, but with a bias to move away from the other. However, the catch is that each agent doesn't *know* the position of the other, so they have to infer the position from noisy observations and move away from the expectation of that inferred position.
 
@@ -49,21 +45,19 @@ prior = proc _ -> do
 The `prior` describes the system's prior knowledge of how the green particle moves. Note that `prior` is a *time-varying* distribution, i.e. a stochastic process. This is reflected in the type of `prior`. Next, the generative model:
 
 ```haskell
-observationModel :: ConditionalStochasticProcess Position Observation
+observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
-    n <- fmap (uncurry V2) $ noise &&& noise -< ()
-    returnA -< p + n
-    where 
-        noise = constM (normal 0 std)
+    (x,y) <- (noise &&& noise) -< ()
+    returnA -< p + V2 x y
+    where noise = constM (normal 0 std)
 ```
 
 `observationModel` generates a process describing observations *given* the process describing the true position. Again, this is reflected in its type. Then the posterior:
 
 ```haskell
-posterior :: UnnormalizedConditionalStochasticProcess Observation Position
+posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
 posterior = proc (V2 oX oY) -> do
-  latent <- prior -< ()
-  predicted@(V2 trueX trueY) <- observationModel -< latent
+  latent@(V2 trueX trueY) <- prior -< ()
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 ```
@@ -71,12 +65,26 @@ posterior = proc (V2 oX oY) -> do
 Given a process representing incoming observations, `posterior` is a process representing the inferred position of the particle. We cannot sample from it yet, because it is unnormalized.
 
 ```haskell
-inference :: ConditionalStochasticProcess Observation [(Position, Weight)]
-inference =  particleFilter SMCConfig {numParticles = 100, resampler = resampleMultinomial} posterior
+inference :: SignalFunction Stochastic Observation [(Position, Weight)]
+inference =  particleFilter params {n = 100} posterior
 ```
 
-The `particleFilter` inference method takes the posterior, and produces a (normalized) conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
+The `particleFilter` inference method takes an unnormalized signal function (here the posterior), and produces a (normalized) signal function representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
 
+Finally, we wrap the whole system in a signal function that expresses the behavior to be displayed to screen:
+
+```haskell
+main :: SignalFunction Stochastic Text Picture
+main = proc message -> do
+  actualPosition <- prior -< ()
+  measuredPosition <- observationModel -< actualPosition
+  samples <- particleFilter params posterior -< measuredPosition
+  (showObs, showParts) <- interpretMessage -< message
+  renderObjects -< Result 
+    (if showObs then measuredPosition else 0) 
+    actualPosition 
+    (if showParts then samples else [])
+```
 
 ## Multiple agents
 

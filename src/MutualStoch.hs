@@ -240,7 +240,7 @@ selfBelief :: SignalFunction (Stochastic & Feedback) Text Picture
 selfBelief = proc inputText -> do
     rec
         ballObs <- iPre 0 >>> observationModel -< ball 
-        inferredBall <- particleFilter params {n = 20} post -< (ballObs, expectedBall)
+        inferredBall <- particleFilter params {n = 20} post -< (ballObs, ball)
         expectedBall <- arr expected -< inferredBall
         ball <- moveTowards -< expectedBall
     
@@ -250,13 +250,20 @@ selfBelief = proc inputText -> do
     where
 
         post :: SignalFunction (Stochastic & Unnormalized) (Observation, Position) Position
-        post = proc (obs, expectedBall) -> do
-            -- pos <- iPre 0 >>> moveTowards -< expectedBall
-            pos <- Example.prior -< ()
+        post = proc (obs, ball) -> do
+            pos <- iPre 0 >>> moveTowards -< ball
+            -- pos <- Example.prior -< ()
             observe -< normalPdf2D pos std obs
             returnA -< pos
 
-  
+  -- todos: movement given language (warmer, cooler)
+  -- the ball is in the box. find the ball
+  -- diagram of what depends on what
+
+-- convention:
+    -- latent state: the language :: V2 Double
+
+    -- agent:: SignalFunction Stochastic (Position, Language) (Observation, Utterance :: V2 Double)
 
 
 posteriorRank2 :: Process (Stochastic & Unnormalized) (Observation, Position) Position
