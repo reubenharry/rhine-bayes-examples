@@ -37,6 +37,9 @@ library:
   source-dirs: src
   dependencies:
   # - representable-functors
+  - JuicyPixels-repa
+  - repa
+  - JuicyPixels
   - monad-bayes
   - dunai
   - keys
@@ -70,6 +73,7 @@ library:
   - aeson
   - lens-aeson
   - free
+  - bytestring
   default-extensions:
     - RankNTypes
     - Arrows

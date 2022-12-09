@@ -3,7 +3,7 @@
 module TwoStreamContinuous where
 import Control.Monad.Bayes.Class
 import FRP.Rhine
-import qualified Data.Vector.Sized as V
+
 import Example hiding (posterior, observationModel, visualisation, Result, latent, measured, stdDev, estimate, glossClock, prior)
 import GHC.Float
 import Data.MonadicStreamFunction.InternalCore
@@ -15,6 +15,7 @@ import Inference
 import Control.Monad.Bayes.Population
 import Numeric.Log
 import qualified Debug.Trace as D
+import Linear (V2(..))
 
 
 prior :: (MonadSample m, Diff td ~ Float) => BehaviourF m td () (Position, Double)
@@ -22,8 +23,8 @@ prior = proc () -> do
     var <- doubleStream -< 1
     m1 <- walk1D -< var
     m2 <- walk1D -< var
-    returnA -< (V.fromTuple (m1, m2), var) 
-    
+    returnA -< (uncurry V2 (m1, m2), var)
+
     where
 
     walk1D = proc var -> do
@@ -36,7 +37,7 @@ prior = proc () -> do
 
 -- observationModel :: NormalizedDistribution m => StochasticSignalTransform m (Position, Double) Observation
 observationModel = proc (p, _) -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
 
     where noise = constM (normal 0 std)
@@ -52,8 +53,8 @@ posterior = proc (V2 oX oY) -> do
 doubleStream :: MonadSample m => MSF m Double Double
 doubleStream = liftMSF $ do
     x <- gamma 1 3
-    return (constM $ pure x) 
-    
+    return (constM $ pure x)
+
     -- (uniformD [constM $ pure 1, constM $ pure 2] ) -- gamma 1 1])
 
 liftMSF :: Monad m => m (MSF m a a) -> MSF m a a
@@ -63,7 +64,7 @@ liftMSF msf = MSF \x -> fmap (x,) msf
 gloss :: IO ()
 gloss = sampleIO $
         launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) } 
+            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
         $ runIdentityT $ reactimateCl glossClock proc () -> do
 
             -- bool <- boolStream -< True
@@ -71,7 +72,7 @@ gloss = sampleIO $
             latent@(actualPosition, trueD) <- prior -< ()
             -- returnA -< undefined
             measuredPosition <- observationModel -< latent
-            samples <- particleFilter 100 resampleMultinomial (snd <$> posterior) -< measuredPosition
+            samples <- particleFilter params (snd <$> posterior) -< measuredPosition
             (withSideEffect_ (lift $ lift clearIO) >>> visualisation) -< Result { estimate = 0 -- averageOf samples
                                 , stdDev = 0 -- stdDevOf (first xCoord <$> samples) + stdDevOf (first yCoord <$> samples)
                                 , measured = 0 -- measuredPosition
@@ -87,8 +88,8 @@ visualisation = proc Result { estimate, stdDev, measured, latent, doubleE, trueD
   drawBall -< (estimate, stdDev, blue)
   drawBall -< (measured, 0.3, red)
   drawBall -< (latent, 0.3, withAlpha 0.5 green)
-  arrMCl (lift . paintIO . scale 0.1 0.1 . text ) -< (show $ doubleE)
-  arrMCl (lift . paintIO . translate 0 (-10) . scale 0.1 0.1 . text ) -< (show $ trueDouble)
+  arrMCl (lift . paintIO . scale 0.1 0.1 . text ) -< (show doubleE)
+  arrMCl (lift . paintIO . translate 0 (-10) . scale 0.1 0.1 . text ) -< (show trueDouble)
 
   where
     drawBall = proc (V2 x y, width, theColor) -> do
@@ -99,8 +100,8 @@ visualisation = proc Result { estimate, stdDev, measured, latent, doubleE, trueD
             circleSolid $
             double2Float width
 
-    maxCommon ls = 
-        let 
+    maxCommon ls =
+        let
                 fs = fst <$> ls
                 s = filter id fs
                 n = filter not fs

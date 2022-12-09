@@ -21,16 +21,14 @@
 module Loop where
 import FRP.Rhine.Gloss
 import Example hiding (foo, posterior, observationModel, prior)
-import Control.Monad.Bayes.Sampler
 import Inference
 import Control.Monad.Bayes.Population
-import Control.Monad.Morph
 import Control.Monad.Bayes.Class
-import qualified Data.Vector.Sized as V
-import Data.Void
+
 import Control.Monad.Trans.MSF ()
-import Control.Monad.Trans.Reader
 import qualified Data.Text as T
+import Linear (V2(..))
+import qualified Linear as L
 
 
 
@@ -44,12 +42,12 @@ foo = do
 abortivePrior :: (MonadSample m, Diff (Time cl) ~ Double, Time cl ~ Double) => ClSF (ExceptT Position m) cl () Position
 abortivePrior = proc () -> do
     x <- prior -< ()
-    _ <- throwOn' -< (norm x > 2, x)
+    _ <- throwOn' -< (L.norm x > 2, x)
     returnA -< x
 
 
 prior :: SignalFunction Stochastic () Position
-prior = fmap V.fromTuple $ walk1D &&& walk1D where
+prior = fmap (uncurry V2) $ walk1D &&& walk1D where
 
     walk1D = proc _ -> do
         dacceleration <- constM (normal 0 8 ) -< ()
@@ -60,7 +58,7 @@ prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
 observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
 
     where 
@@ -82,7 +80,7 @@ man = safely foo
 -- man2 = reactimateCl (waitClock @100) $ morphS (Control.Monad.Morph.hoist sampleIO) man
 
 -- prior = undefined
-    -- fmap V.fromTuple $ walk1D &&& walk1D where
+    -- fmap (uncurry V2) $ walk1D &&& walk1D where
 
     -- walk1D = proc _ -> do
     --     dacceleration <- constM (normal 0 8 ) -< ()
@@ -98,7 +96,7 @@ gloss :: SignalFunction Stochastic T.Text Picture
 gloss = proc _ -> do
             actualPosition <- man -< ()
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
+            samples <- particleFilter params {n = 200} posterior -< measuredPosition
             renderObjects -< Result {
                                 particles = samples
                                 , measured = measuredPosition

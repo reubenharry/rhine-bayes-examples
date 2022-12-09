@@ -2,14 +2,14 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecursiveDo #-}
+
 
 
 module GlossInput where
 
-import qualified Data.Vector.Sized as V
+
 import FRP.Rhine
-import Inference (pattern V2, V2, particleFilter, StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, hold, observe)
+import Inference (particleFilter, StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, hold, observe, SMCSettings (n), params)
 import FRP.Rhine.Gloss
 import Numeric.Log
 import GHC.Float
@@ -17,28 +17,24 @@ import Control.Monad.Bayes.Sampler
 import Control.Monad.Bayes.Population
 import Control.Monad.Trans.Class
 import Control.Monad.Bayes.Class
-import Control.Monad.Bayes.Enumerator (enumerate)
 import qualified Data.Vector as VV
-import Data.List (intersperse)
-import qualified Control.Monad.Morph as MM
 import Witch (into)
-import Control.Monad.Fix (MonadFix)
-import Debug.Trace (traceM)
-import qualified Debug.Trace as Debug
-import Data.MonadicStreamFunction.InternalCore (MSF(..))
+import Linear (V2)
+import Linear.V2 (V2(..))
+import qualified Linear as L
 
 std :: Double
 std = 0.3
 
-type Observation = V.Vector 2 Double
-type Position = V.Vector 2 Double
+type Observation = V2 Double
+type Position = V2 Double
 
 
 prior :: StochasticSignal Position
 prior = proc _ -> do
   x <- walk1D -< ()
   y <- walk1D -< ()
-  returnA -< V.fromTuple (x, y)
+  returnA -< uncurry V2 (x, y)
 
 
 
@@ -58,14 +54,14 @@ av :: (Monad m, VectorSpace v a0, Num v, Fractional v) => MSF
   m
   v
   v
-av = proc v -> do 
+av = proc v -> do
     vs <- accumulateWith (\x y ->  take 100 (x : y)) [] -< v
-    returnA -< (* (1/100)) $ foldr1 (^+^) $ vs
+    returnA -< (* (1/100)) $ foldr1 (^+^) vs
 
 
 observationModel :: StochasticSignalTransform Position Observation
 observationModel = proc p -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
 
     where
@@ -81,7 +77,7 @@ posterior = proc (V2 oX oY) -> do
 posteriorPredictive ::StochasticSignalTransformUnnormalized Observation (Position, Int)
 posteriorPredictive = proc obs -> do
   predicted <- posterior -< obs
-  e <- edgeBy ((>0.5) . norm) -< predicted
+  e <- edgeBy ((>0.5) . L.norm) -< predicted
   returnA -< (predicted, e)
 
 
@@ -98,18 +94,18 @@ gloss :: IO ()
 gloss = sampleIO $
         launchGlossThread defaultSettings
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        do 
-          
+        do
+
           (clock, _) <- initClock glossClock
           reactimateCl glossClock proc () -> do
             -- actualPosition <- prior -< ()
             (_, tag) <- morphS lift clock -< ()
-            actualPosition@(V2 x y) <- arr (\case 
+            actualPosition@(V2 x y) <- arr (\case
                 EventMotion (x,y) -> Just (into @Double x, into @Double y)
                 _ -> Nothing ) >>> hold (0,0) >>> arr (\(x,y) -> V2 (x/150) (y/150)) -< tag
             -- arrMCl paintIO -< translate (into @Float x) (into @Float y) $ circle 15
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 50 resampleMultinomial posterior -< measuredPosition
+            samples <- particleFilter params {n = 50} posterior -< measuredPosition
             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                 particles = samples
                                 , measured = measuredPosition
@@ -199,18 +195,18 @@ glossClock = RescaledClock
 
 posterior2 :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation Position
 posterior2 = proc (V2 _ _) -> do
-  latent@(V2 _ _) <- prior -< () -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+  latent@(V2 _ _) <- prior -< () -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
 --   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 posterior3 :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation Position
 posterior3 = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY) <- fmap V.fromTuple $ constM ((\x -> 10 * (x - 0.5)) <$> random) &&& constM ((\x -> 10 * (x - 0.5)) <$> random) -< ()
+  latent@(V2 trueX trueY) <- fmap (uncurry V2) $ constM ((\x -> 10 * (x - 0.5)) <$> random) &&& constM ((\x -> 10 * (x - 0.5)) <$> random) -< ()
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
 
 
     -- isOutlier <- constM (bernoulli 0.1) -< ()
-    -- if isOutlier then fmap V.fromTuple $ outlier &&& outlier-< () else returnA -< p + n 
+    -- if isOutlier then fmap (uncurry V2) $ outlier &&& outlier-< () else returnA -< p + n 
         -- outlier = constM ((\x -> 10 * (x - 0.5)) <$> random)

@@ -1,12 +1,12 @@
-{-# LANGUAGE TupleSections #-}
+
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TypeApplications #-}
 module Split where
 
 
-import Inference (StochasticSignal, V2(..), pattern V2, particleFilter, observe)
+import Inference (StochasticSignal, particleFilter, observe, SMCSettings (n), params)
 import Example (Position, glossClock, Observation)
-import qualified Data.Vector.Sized as V
+
 import Control.Arrow
 import Data.MonadicStreamFunction
 import Control.Monad.Bayes.Class
@@ -25,23 +25,26 @@ import Example qualified hiding (drawBall, drawParticles, visualisation)
 import Control.Monad.Bayes.Population
 import Numeric.Log
 import Witch (into)
+import Linear (V2)
+import Linear.V2 (V2(..))
+import Prelude hiding (pred)
 
 -- prior :: StochasticSignal Position
 -- prior :: (MonadSample m) => Diff (Time cl) ~ Double => MSF
 --   (ListT
 --      (ReaderT (TimeInfo cl) m))
 --   (Maybe String)
---   (V.Vector 2 Double)
+--   (V2 Double)
 prior :: MonadSample m => MSF
   (ListT
      (ReaderT
         (TimeInfo (RescaledClock GlossSimClockIO Double))
-        (m)))
-  (Maybe [Char])
+        m))
+  (Maybe String)
   Position
 prior = proc n -> do
   x <- morphS lift Example.prior -< ()
-  y <- case n of 
+  y <- case n of
     Just "split" -> split -< x
     _ -> C.id -< x
   returnA -< y
@@ -73,10 +76,10 @@ split = sequenceS [C.id, C.id]
 -- observationModel :: StochasticSignalTransform Position Observation
 observationModel :: (MonadSample m) => MSF
   m
-  [(V.Vector 2 Double)]
-  (V.Vector 2 Double)
+  [V2 Double]
+  (V2 Double)
 observationModel = proc p -> do
-    -- n <- fmap V.fromTuple $ noise &&& noise -< ()
+    -- n <- fmap (uncurry V2) $ noise &&& noise -< ()
     q <- arrM uniformD -< p
     returnA -< q
 
@@ -91,17 +94,17 @@ std = 0.1
 --   (ListT
 --      (ReaderT (TimeInfo cl) m))
 --   (Maybe String)
---   (V.Vector 2 Double)
+--   (V2 Double)
 -- posterior = undefined
 
 -- posterior ::StochasticSignalTransformUnnormalized Observation Position
 -- posterior :: (MonadInfer m, Diff (Time cl) ~ Double) => MSF
---   ( (ReaderT (TimeInfo cl) m)) (V.Vector 2 Double, Maybe String) [V.Vector 2 Double]
+--   ( (ReaderT (TimeInfo cl) m)) (V2 Double, Maybe String) [V2 Double]
 posterior :: MonadInfer m => MSF
   (ReaderT
      (TimeInfo (RescaledClock GlossSimClockIO Double))
-     (m))
-  (V2 Double, Maybe [Char])
+     m)
+  (V2 Double, Maybe String)
   [Position]
 posterior = proc (V2 oX oY, str) -> do
   latent <- widthFirst prior -< str
@@ -109,9 +112,15 @@ posterior = proc (V2 oX oY, str) -> do
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
 
-noisify = proc (V2 x y) -> do 
+noisify :: MSF
+  (ReaderT
+     (TimeInfo (RescaledClock GlossSimClockIO Double))
+     (GlossConcT SamplerIO))
+  (V2 Double)
+  (V2 Double)
+noisify = proc (V2 x y) -> do
                         (n1,n2) <- noise *** noise -< ((),())
-                        returnA -< V.fromTuple (x+n1, y+n2)
+                        returnA -< uncurry V2 (x+n1, y+n2)
 
 gloss :: IO ()
 gloss = sampleIO $
@@ -119,20 +128,20 @@ gloss = sampleIO $
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
         $ do
             mvar <- liftIO $ newMVar ""
-            _ <- liftIO $ void $ forkIO $ forever do 
-                x <- getLine 
-                swapMVar mvar x
+            _ <- liftIO $ void $ forkIO $ forever do
+                x <- getLine
+                _ <- swapMVar mvar x
                 print "foo"
                 -- (liftIO $ void $ forkIO $ getLine >>= \x -> do print "foo"; void $ swapMVar mvar x) -< ()
             reactimateCl glossClock proc () -> do
 
                     message' :: String <- constM (liftIO $ swapMVar mvar "") -< ()
                     let message = if (not . null) message' then Just message' else Nothing
-                    actualPosition <- 
+                    actualPosition <-
                         -- morphS (MM.hoist (lift :: Monad m => m a -> GlossConcT m a)) 
                         (widthFirst prior) -< message
                     measuredPosition <- observationModel >>> noisify -< actualPosition
-                    samples <- particleFilter 50 resampleMultinomial undefined -< (measuredPosition, message)
+                    samples <- particleFilter params {n = 50} undefined -< (measuredPosition, message)
                     (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
                                         particles = samples
                                         , measured = measuredPosition
@@ -144,7 +153,7 @@ visualisation = proc Result { particles, measured, latent} -> do
 
   drawParticles -< particles
   drawBall -< (measured, 0.05, red, "")
-  drawBalls -< (\(x,y) -> (x, 0.3, withAlpha 0.5 green, y) )<$> (zip latent $ show <$> [1..])
+  drawBalls -< (\(x,y) -> (x, 0.3, withAlpha 0.5 green, y) )<$> zip latent (show <$> [1..])
 
 
 drawParticles :: MonadIO m => BehaviourF (GlossConcT m) td [([Position], Log Double)] ()
@@ -157,7 +166,7 @@ drawParticles = proc particles -> do
 
 drawParticle :: MonadIO m => BehaviourF (GlossConcT m) td ([Position], Log Double) ()
 drawParticle = proc (position, probability) -> do
-  drawBalls -< (\(x,y) -> (x, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet, y)) <$> (zip position $ show <$> [1..])
+  drawBalls -< (\(x,y) -> (x, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet, y)) <$> zip position (show <$> [1..])
 
 
 -- drawBalls :: MonadIO m => BehaviourF (m) td [Position] ()

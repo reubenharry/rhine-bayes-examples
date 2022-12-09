@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StarIsType #-}
+{-# LANGUAGE StarIsType #-}
 
 module Ising where
 -- import Control.Comonad.Store
@@ -93,7 +95,7 @@ gloss = sampleIO $
             arrMCl paintIO -< render grid
             -- actualPosition <- prior -< ()
             -- measuredPosition <- observationModel -< actualPosition
-            -- samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
+            -- samples <- particleFilter params {n = 200} posterior -< measuredPosition
             -- (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
             --                     particles = samples
             --                     , measured = measuredPosition
@@ -143,6 +145,20 @@ instance (Comonad w, Representable g, Rep g ~ s) => ComonadStore s (StoreT g w) 
   peeks f (StoreT w s) = extract w `index` f s
   seek s (StoreT w _) = StoreT w s
   seeks f (StoreT w s) = StoreT w (f s)
+
+ex1 = fmap sum [Just 1, Just 2, Just 3] 
+
+
+ex2 = fmap (>3) (+1)
+
+
+
+
+
+
+
+
+
 
 
 class (Distributive f) => Representable f where

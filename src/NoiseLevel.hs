@@ -158,7 +158,7 @@ mainSignal = proc userInput -> do
     agent :: Process (Stochastic & Feedback) (Observation, UserInput) (Action, Particles)
     agent = proc (observation, userInput) -> do
         rec
-            particles <- particleFilter 150 resampleMultinomial posterior -< (observation, action, userInput)
+            particles <- particleFilter params {n = 150} posterior -< (observation, action, userInput)
             action <- control -< particles
         returnA -< (action, particles)
 
@@ -340,8 +340,3 @@ instance VectorSpace Angle Double where
     x *^ Angle y = Angle (x * y)
     Angle x `dot` Angle y = abs $ x - y
 
-instance VectorSpace (V2 Double) Double where
-    zeroVector = 0
-    x ^+^  y  =  x + y
-    x *^ y =  (x *) <$> y
-    x `dot` y = x `V.dot` y

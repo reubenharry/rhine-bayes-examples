@@ -6,9 +6,9 @@
 
 module Language where
 
-import qualified Data.Vector.Sized as V
+
 import FRP.Rhine
-import Inference (pattern V2, V2, particleFilter, StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, observe)
+import Inference (particleFilter, StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, observe, SMCSettings (n), params)
 import FRP.Rhine.Gloss
 import Numeric.Log
 import GHC.Float
@@ -21,12 +21,14 @@ import Data.Maybe
 import Witch
 import Control.Concurrent (forkIO, newMVar, swapMVar)
 import Data.Functor (void)
+import Linear (V2)
+import Linear.V2 (V2(..))
 
 std :: Double
 std = 0.5
 
-type Observation = V.Vector 2 Double
-type Position = V.Vector 2 Double
+type Observation = V2 Double
+type Position = V2 Double
 
 type Utterance = String
 
@@ -39,11 +41,11 @@ prior = pos &&& col
         pos = performOnFirstSample do
             x <- random
             y <- random
-            return $ basePrior $ (V.fromTuple (x,y) - 0.5) * 2
+            return $ basePrior $ (uncurry V2 (x,y) - 0.5) * 2
 
 
-basePrior :: V.Vector 2 Double -> StochasticSignal Position
-basePrior ~v@(V2 x y) = fmap ((+v) . V.fromTuple) $ walk1D x &&& walk1D y where
+basePrior :: V2 Double -> StochasticSignal Position
+basePrior ~v@(V2 x y) = fmap ((+v) . uncurry V2) $ walk1D x &&& walk1D y where
 
     walk1D d = feedback 0 proc (_, oldPosition) -> do
         dacceleration <- constM (normal 0 8 ) -< ()
@@ -62,7 +64,7 @@ basePrior ~v@(V2 x y) = fmap ((+v) . V.fromTuple) $ walk1D x &&& walk1D y where
 
 observationModel :: StochasticSignalTransform (Position, Color) Observation
 observationModel = proc (p, c) -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
 
     where
@@ -99,7 +101,7 @@ gloss = sampleIO $
           mvar <- liftIO $ newMVar ""
 
           reactimateCl glossClock proc () -> do
-            actualPosition <- basePrior $ V.fromTuple (0,0) -< () -- basePrior (V.fromTuple (0,0)) -< ()
+            actualPosition <- basePrior $ uncurry V2 (0,0) -< () -- basePrior (uncurry V2 (0,0)) -< ()
             measuredPosition <- observationModel -< (actualPosition, green)
             a <- constM (liftIO $ void $ forkIO $ getLine >>= \x -> do print "foo"; void $ swapMVar mvar x) -< ()
             message :: String <- constM (liftIO $ swapMVar mvar "") -< ()
@@ -107,7 +109,7 @@ gloss = sampleIO $
             if (not . null) message then arrM (liftIO . print) -< message else returnA -< ()
 
             let obs = Nothing -- if n < 100 then Nothing else Just measuredPosition
-            samples <- particleFilter 200 resampleMultinomial posterior -< (obs, Just message) -- (obs, if n > 40 && n < 50 then Just "the particle is in the box" else if n > 160 then Just "the particle is green" else Nothing)
+            samples <- particleFilter params {n = 200} posterior -< (obs, Just message) -- (obs, if n > 40 && n < 50 then Just "the particle is in the box" else if n > 160 then Just "the particle is green" else Nothing)
             visualisation -< Result {
                                 particles = first fst <$> samples
                                 , measured = obs

@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
-{-# LANGUAGE PatternSynonyms #-}
+
 
 {-# LANGUAGE DataKinds #-}
 
@@ -12,7 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
 
-{-# LANGUAGE StandaloneKindSignatures #-}
+
 
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE Arrows #-}
@@ -20,9 +20,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-{-# LANGUAGE KindSignatures #-}
+
 {-# LANGUAGE LiberalTypeSynonyms #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+
 
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -31,9 +31,9 @@
 
 module Example where
 
-import qualified Data.Vector.Sized as V
+
 import FRP.Rhine
-import Inference (pattern V2, V2, particleFilter, StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, Stochastic, Process, type (&), Unnormalized, SignalFunction, Deterministic, particleFilter, observe)
+import Inference (particleFilter, Stochastic, type (&), Unnormalized, SignalFunction, Deterministic, particleFilter, observe, hold, params)
 import FRP.Rhine.Gloss
 import Numeric.Log
 import GHC.Float
@@ -43,19 +43,20 @@ import Control.Monad.Trans.Class
 import Control.Monad.Bayes.Class
 import Control.Monad.Bayes.Enumerator (enumerate)
 import Data.List (intersperse)
-import Control.Monad.Trans.MSF (ReaderT)
 import qualified Data.Text.IO as T
 import Control.Concurrent
 import Control.Monad (void, forever)
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Foldable (Foldable(fold))
-import qualified Data.Text as T
 import Prelude hiding (Real)
 import qualified Control.Monad.Morph as MM
 import Data.Text (Text)
 import Control.Monad.Trans.MSF.Except (performOnFirstSample)
-import Control.Applicative (Applicative(liftA2))
 import qualified Data.Vector as VV
+import Linear (V2)
+import Linear.V2 (V2(..))
+import qualified Linear as L
+import Witch (into)
 
 
 std :: Double
@@ -65,35 +66,20 @@ type Real = Double
 type Observation = V2 Double
 type Position = V2 Double
 
-
-square :: MonadSample m => m (V2 Double)
-square = do
-  x <- random 
-  y <- random
-  return $ V.fromTuple (((x-0.5)*5), ((y-0.5)*5))
-
-foo :: SignalFunction Stochastic () Position
-foo = proc _ -> do
-  initialPosition <- performOnFirstSample (fmap (constM . pure) $ square) -< ()
-  p <- prior -< ()
-  returnA -< initialPosition + p
-
 prior :: SignalFunction Stochastic () Position
 prior = proc _ -> do
   x <- walk1D -< ()
   y <- walk1D -< ()
-  returnA -< V.fromTuple (x, y)
+  returnA -< V2 x y
 
 observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
-    n <- (noise &&& noise) -< ()
-    returnA -< p + V.fromTuple n
-
-    where
-        noise = constM (normal 0 std)
+    (x,y) <- (noise &&& noise) -< ()
+    returnA -< p + V2 x y
+    where noise = constM (normal 0 std)
 
 dot :: SignalFunction Stochastic Text Picture
-dot = proc inputText -> do
+dot = proc _ -> do
   actualPosition <- prior -< ()
   observed <- observationModel -< actualPosition
   renderObjects -< Result observed actualPosition []
@@ -104,6 +90,33 @@ posterior = proc (V2 oX oY) -> do
   latent@(V2 trueX trueY) <- prior -< ()
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
+
+gloss :: SignalFunction Stochastic Text Picture
+gloss = proc message -> do
+  actualPosition <- prior -< ()
+  measuredPosition <- observationModel -< actualPosition
+  samples <- particleFilter params posterior -< measuredPosition
+  (showObs, showParts) <- interpret -< message
+  renderObjects -< Result 
+    (if showObs then measuredPosition else 1000) 
+    actualPosition 
+    (if showParts then samples else [])
+
+
+interpret :: Monad m => MSF
+  m
+  Text
+  (Bool, Bool)
+interpret = proc message -> do
+  showParticles <- hold True -< case message of
+                    "show particles" -> Just True
+                    "don't show particles" -> Just False
+                    _ -> Nothing
+  showObservations <- hold True -< case message of
+      "show observations" -> Just True
+      "don't show observations" -> Just False
+      _ -> Nothing
+  returnA -< (showParticles, showObservations)
 
 
 posteriorWeak :: SignalFunction (Stochastic & Unnormalized) Observation Position
@@ -122,19 +135,12 @@ weakPrior :: SignalFunction Stochastic Text Picture
 weakPrior = proc _ -> do
             actualPosition <- prior -< ()
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 100 resampleMultinomial posteriorWeak -< measuredPosition
+            samples <- particleFilter params posteriorWeak -< measuredPosition
             renderObjects -< Result {
                                 particles = samples
                                 , measured = measuredPosition
                                 , latent = actualPosition
                                 }
-
-gloss :: SignalFunction Stochastic Text Picture
-gloss = proc _ -> do
-            actualPosition <- prior -< ()
-            measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 100 resampleMultinomial posterior -< measuredPosition
-            renderObjects -< Result measuredPosition actualPosition samples
 
 
 
@@ -154,28 +160,27 @@ walk1D = proc _ -> do
 
 
 
-predictive :: SignalFunction Deterministic Position Int
-predictive = proc pos -> do
-  isInsideRadius <- arr ((>0.5) . norm) -< pos
+countCrosses :: SignalFunction Deterministic Position Int
+countCrosses = proc pos -> do
+  isInsideRadius <- arr ((>0.5) . L.norm) -< pos
   bool <- edge -< isInsideRadius
   returnA -< bool
 
-posteriorPredictive :: SignalFunction (Stochastic & Unnormalized) Observation (Position, Int)
-posteriorPredictive = proc obs -> do
+postPred :: SignalFunction (Stochastic & Unnormalized) Observation (Position, Int)
+postPred = proc obs -> do
   inferredPos <- posterior -< obs
-  numTimesCrossRadius <- predictive -< inferredPos
+  numTimesCrossRadius <- countCrosses -< inferredPos
   returnA -< (inferredPos, numTimesCrossRadius)
-
 
 main :: SignalFunction Stochastic Text Picture
 main = proc _ -> do
-            actualPosition <- prior -< ()
-            measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 100 resampleMultinomial posteriorPredictive -< measuredPosition
-            numberOfCrosses <- arr toTable -< samples
-            objects <- renderObjects -< Result measuredPosition actualPosition (first fst <$> samples)
-            probTable <- visualizeTable -< numberOfCrosses             
-            returnA -< objects <> probTable
+  actualPos <- prior -< ()
+  measPos <- observationModel -< actualPos
+  samples <- particleFilter params postPred -< measPos
+  numberOfCrosses <- arr toTable -< samples
+  objects <- renderObjects -< Result measPos actualPos (first fst <$> samples)
+  probTable <- visualizeTable -< numberOfCrosses
+  returnA -< objects <> probTable
 
 
 ----------
@@ -203,7 +208,7 @@ toGlossC' x  = do
 
 toGloss = sampleIO .
         launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
+            { display = InWindow "rhine-bayes" (1724, 1260) (10, 10) }
         . reactimateCl glossClock
 
 
@@ -213,13 +218,13 @@ toGloss = sampleIO .
 
 noObservations :: SignalFunction Stochastic Text Picture
 noObservations = proc _ -> do
-            actualPosition <- prior -< ()
-            samples <- particleFilter 100 resampleMultinomial prior -< ()
-            renderObjects -< Result {
-                                particles = samples
-                                , measured = 1000
-                                , latent = actualPosition
-                                }
+  actualPosition <- prior -< ()
+  samples <- particleFilter params prior -< ()
+  renderObjects -< Result {
+                      particles = samples
+                      , measured = 1000
+                      , latent = actualPosition
+                      }
 
 
 
@@ -264,7 +269,7 @@ renderObjects = proc Result { particles, measured, latent} -> do
 
   observation <- drawBall' -< (measured, 0.05, red)
   ball <- drawBall' -< (latent, 0.3, makeColorI 255 239 0 255)
-  parts <- drawParticles' -< particles
+  parts <- fold <$> mapMSF drawParticle' -< particles
   returnA -< (observation <> ball <> parts)
 
 visualizeTable :: Monad m => MSF m [String] Picture
@@ -303,14 +308,12 @@ drawBall' = proc (V2 x y, width, theColor) -> do
         translate (double2Float x) (double2Float y) $
         color theColor $
         circleSolid $
-        double2Float width
+        into @Float width
 
 drawParticle' ::  Monad m => MSF m (Position, Log Double) Picture
 drawParticle' = proc (position, probability) -> do
   drawBall' -< (position, 0.1, withAlpha (double2Float $ exp $ 0.2 * ln probability) violet)
 
-drawParticles' :: Monad m => MSF m [(Position, Log Double)] Picture
-drawParticles' = fold <$> mapMSF drawParticle'
 
 
 data Result = Result
@@ -347,5 +350,5 @@ glossClock = RescaledClock
 
 
     -- isOutlier <- constM (bernoulli 0.1) -< ()
-    -- if isOutlier then fmap V.fromTuple $ outlier &&& outlier-< () else returnA -< p + n 
+    -- if isOutlier then fmap (uncurry V2) $ outlier &&& outlier-< () else returnA -< p + n 
         -- outlier = constM ((\x -> 10 * (x - 0.5)) <$> random)

@@ -2,11 +2,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE TypeApplications #-}
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
-{-# LANGUAGE PatternSynonyms #-}
+
 
 {-# LANGUAGE DataKinds #-}
 
@@ -14,7 +14,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
 
-{-# LANGUAGE StandaloneKindSignatures #-}
+
 
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE Arrows #-}
@@ -22,35 +22,34 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-{-# LANGUAGE KindSignatures #-}
+
 {-# LANGUAGE LiberalTypeSynonyms #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+
 
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE TupleSections #-}
+
 
 module BetaBern where
-import Inference (StochasticSignal, StochasticSignalTransform, StochasticSignalTransformUnnormalized, particleFilter, pattern V2, V2(..), SignalFunction, Stochastic, type (&), Unnormalized)
+import Inference (particleFilter, SignalFunction, Stochastic, type (&), Unnormalized, SMCSettings (n), params)
 import FRP.Rhine.Gloss
-import Example (glossClock, drawBall, Result (Result, particles, measured, latent), renderObjects, drawBall', drawParticles')
-import Control.Monad.Bayes.Sampler
+import Example (Result (Result, particles, measured, latent), drawBall', drawParticle')
 import Control.Monad.Bayes.Population
-import Control.Monad.Trans.Class (MonadTrans(lift))
-import Numeric.Log (Log (Exp, ln))
+import Numeric.Log (Log (ln))
 import Control.Monad.Bayes.Class
-import qualified Data.Vector.Sized as V
+
 import Witch (into)
-import Control.Monad.Trans.MSF (ReaderT)
 import qualified Data.Text as T
+import Linear (V2(..))
+import Control.Monad.Trans.MSF.List (mapMSF)
+import Data.Foldable (Foldable(fold))
 
 
 
 std :: Double
 std = 0.5
 
-type Observation = Bool
-type Position = Double
+
 
 
 prior :: SignalFunction Stochastic () Position
@@ -68,6 +67,9 @@ prior = fmap sigmoid walk1D
     sigmoid x = 1 / (1 + exp x)
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
+
+type Observation = Bool
+type Position = Double
 
 observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
@@ -103,11 +105,11 @@ gloss :: SignalFunction Stochastic T.Text Picture
 gloss = proc _ -> do
             actualPosition <- prior -< ()
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 150 resampleMultinomial posterior -< measuredPosition
+            samples <- particleFilter params {n = 150} posterior -< measuredPosition
             visualisation -< Result {
-                                particles = first (\y -> V.fromTuple (0,(y-0.5)*5) ) <$> samples
-                                , measured = if measuredPosition then V.fromTuple (-1,-2) else V.fromTuple (1,-2)
-                                , latent = (\y -> V.fromTuple (0,(y-0.5)*5) ) actualPosition
+                                particles = first (\y -> V2 0 ((y-0.5)*5)) <$> samples
+                                , measured = if measuredPosition then uncurry V2 (-1,-2) else uncurry V2 (1,-2)
+                                , latent = (\y -> uncurry V2 (0,(y-0.5)*5) ) actualPosition
                                 }
 
 
@@ -126,12 +128,12 @@ visualisation = proc Result { particles, measured, latent} -> do
 
   let V2 mx my = measured
 
-  parts <- drawParticles' -< particles
+  parts <- fold <$> mapMSF drawParticle' -< particles
   let obs =
         -- scale 150 150 $
         translate (into @Float (mx*150)) (into @Float (my*150)) $
-        text $ if mx < 0 then "True" else "False" 
-        
+        text $ if mx < 0 then "True" else "False"
+
         --  -< (measured, 0.05, red)
   history <- accumulateWith (\x l -> take 200 $ x : l) [] -< latent
 --   drawBall -< (latent, 0.02, withAlpha 0.5 green)
@@ -144,16 +146,16 @@ drawBalls :: (Monad m) => MSF
   m
   ([(V2 Double, Log Double)], Color)
   Picture
-drawBalls = proc (history, c) -> do 
+drawBalls = proc (history, c) -> do
     returnA -< scale 150 150 $ pictures
-        [translate (into @Float x-(z/50)) (into @Float y) $
+        [translate (into @Float x-z/50) (into @Float y) $
         color (withAlpha (into @Float $ exp $ 0.2 * ln a) c) $
-        
+
         circleSolid 0.02 | (((x,y), a), z) <- zip (first toTuple <$> history) [1..] ]
 
 toTuple (V2 x y) = (x,y)
 
-drawParticle :: Monad m => MSF m (V.Vector 2 Double, Log Double) Picture
+drawParticle :: Monad m => MSF m (V2 Double, Log Double) Picture
 drawParticle = proc (position, probability) -> do
   drawBall' -< (position, 0.04, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet)
 

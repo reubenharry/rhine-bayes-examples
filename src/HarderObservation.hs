@@ -1,61 +1,63 @@
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
+
+{-# LANGUAGE ScopedTypeVariables #-}
+
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TypeOperators #-}
+
+
+
 module HarderObservation where
 import Control.Monad.Bayes.Class
 import FRP.Rhine
-import Example (Position, glossClock, Observation, visualisation, Result (particles, Result, measured, latent))
-import qualified Data.Vector.Sized as V
-import GHC.Float
+import Example (Position, Observation, Result (particles, Result, measured, latent), renderObjects, prior)
+
 import FRP.Rhine.Gloss
-import Inference (pattern V2, particleFilter, xCoord, yCoord, observe)
-import Control.Monad.Bayes.Sampler (sampleIO)
-import Control.Monad.Trans.Identity
-import Control.Monad.Trans.Class
+import Inference (particleFilter, observe, SignalFunction, Stochastic, Unnormalized, type (&), params)
 import Control.Monad.Bayes.Population (resampleMultinomial)
+import Linear (V2)
+import Linear.V2 (V2(..))
+import Data.Text (Text)
 
-type Acceleration = V.Vector 2 Double
-
-prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (Position, Acceleration)
-prior = fmap (\((a,b), (c,d)) -> (V.fromTuple (a,c), V.fromTuple (b, d))) $ walk1D &&& walk1D where
-
-    walk1D = proc _ -> do
-        acceleration <- constM (normal 0 4 ) >>> decayIntegral 2 -< ()
-        velocity <- decayIntegral 2 -< acceleration -- Integral, dying off exponentially
-        position <- decayIntegral 2 -< velocity
-        returnA -< (position, acceleration)
-
-    decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
-
-observationModel :: MonadSample m => BehaviourF m td (Position, Acceleration) (Observation, Observation)
-observationModel = proc (p, a) -> do
-    
-    n1 <- fmap V.fromTuple $ noise1 &&& noise1 -< ()
-    n2 <- fmap V.fromTuple $ noise2 &&& noise2 -< ()
-    returnA -< (p + n1, a + n2)
-
-    where 
-        noise1 = constM (normal 0 10)
-        noise2 = constM (normal 0 1)
+type Acceleration = V2 Double
 
 
-posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td (Observation, Observation) Position
-posterior = proc ((V2 oPosX oPosY), (V2 oAccX oAccY)) -> do
-  (pos@(V2 truePosX truePosY), acc@(V2 trueAccX trueAccY)) <- prior -< ()
-  observe -< normalPdf oAccY 1 trueAccY * normalPdf oAccX 1 trueAccX
-  observe -< 
-    normalPdf oPosY 10 truePosY * 
-    normalPdf oAccX 10 truePosX
+
+
+observationModel :: MonadSample m => BehaviourF m td Acceleration Observation
+observationModel = proc a -> do
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
+    returnA -< a + n
+    where
+        noise = constM (normal 0 1)
+
+
+posterior :: SignalFunction (Unnormalized & Stochastic) Observation Position
+posterior = proc (V2 oAccX oAccY) -> do
+  pos <- Example.prior -< ()
+  V2 accX accY <- derivative >>> derivative -< pos
+  observe -< normalPdf oAccY 1 accY * normalPdf oAccX 1 accX
   returnA -< pos
 
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl glossClock proc () -> do
-            lat@(actualPosition, _) <- prior -< ()
-            pred@(measuredPosition, _) <- observationModel -< lat
-            samples <- particleFilter 200 resampleMultinomial posterior -< pred
-            (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
-                                particles = samples
-                                , measured = measuredPosition
-                                , latent = actualPosition
-                                }
-    
+gloss :: SignalFunction Stochastic Text Picture
+gloss = proc _ -> do
+    actualPos <- prior -< ()
+    actualAcc <- derivative >>> derivative -< actualPos
+    measuredAcc <- observationModel -< actualAcc
+    samples <- particleFilter params posterior -< measuredAcc
+    renderObjects -< Result {
+                        particles = samples
+                        , measured = measuredAcc
+                        , latent = actualPos
+                        }

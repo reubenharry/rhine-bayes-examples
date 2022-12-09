@@ -32,23 +32,10 @@ import Witch (into)
 import Control.Lens
 import Control.Monad (forever)
 import qualified Control.Monad.Trans.State as S
-import Control.Monad.Trans.MSF (untilE)
-import qualified Control.Category as C
-import Data.Maybe (isJust, fromMaybe)
-import Control.Monad.Trans.MSF.Reader (ReaderT)
-import Text.Read (readMaybe)
-import Data.Functor (void)
-import Control.Concurrent (swapMVar, readMVar)
-import Control.Concurrent.MVar
-import qualified Data.Text as T
-import Graphics.Gloss (loadBMP)
-import Text.Megaparsec (Parsec, MonadParsec (eof), runParser)
-import Data.Void (Void)
-import Control.Applicative (optional)
-import Text.Megaparsec.Char (digitChar)
-import Data.Char (digitToInt)
-import Text.Megaparsec.Error (ParseErrorBundle)
-import Data.Either (isRight)
+import Data.Foldable (Foldable(fold))
+import Control.Monad.Trans.MSF.List (mapMSF)
+import Example (drawBall')
+import Data.Text (Text)
 
 
 -- bouncing
@@ -141,57 +128,36 @@ control = arr (averageOf . map (first (view _x . _ballPos)))
 
 
 
-mainSignal :: Process (Stochastic & Feedback) () (State, Particles)
+mainSignal :: SignalFunction (Stochastic & Feedback) Text Picture -- (State, Particles)
 mainSignal = proc _ -> do
     rec
-        -- n <- count -< ()
-        -- let action = (sin (n/50))
-        -- let action = 0
-        state <- prior -< action -- the ground truth state (it's drawn from the prior)
+        state <- prior -< action
         observations <- observationModel -< state
-        particles <- particleFilter 150 resampleMultinomial posterior -< (observations, action)
+        particles <- particleFilter params {n = 150} posterior -< (observations, action)
         action <- control -< particles
 
-    returnA -< (state, particles)
-
-
-
-
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl Example.glossClock proc () -> do
-
-            (state, particles) <- morphS (MM.hoist lift) mainSignal -< ()
-            (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
+    -- returnA -< (state, particles)
+    visualisation -< Result {
                                 particles = particles
                                 , measured = 0
                                 , latent = state
                                 , bar = state ^. barPos
                                 }
 
-visualisation :: MonadIO m => Diff td ~ Double => BehaviourF (GlossConcT m) td Result ()
+
+visualisation :: Monad m => MSF m Result Picture
 visualisation = proc Result { particles, latent, bar} -> do
 
-  drawParticles -< first _ballPos <$> particles
---   Example.drawBall -< (measured, 0.05, red)
-  drawBall -< (_ballPos latent, 0.1, withAlpha 0.5 green)
+  parts <- fold <$> mapMSF drawParticle -< first _ballPos <$> particles
+  ball <- drawBall' -< (_ballPos latent, 0.1, withAlpha 0.5 green)
 
-  arrMCl paintIO -< translate (into @Float (bar * 150)) 0 $ polygon [(-30, -5), (-30, 5), (30, 5), (30, -5), (-30, -5)]
+  let barPos = translate (into @Float (bar * 150)) 0 $ polygon [(-30, -5), (-30, 5), (30, 5), (30, -5), (-30, -5)]
+  returnA -< (parts <> ball <> barPos)
 
-drawBall :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) ()
-drawBall = proc (V2 x y, width, theColor) -> do
-    arrMCl paintIO -<
-        scale 150 150 $
-        translate (into @Float x) (into @Float y) $
-        color theColor $
-        circleSolid $
-        into @Float width
 
-drawParticle :: MonadIO m => BehaviourF (GlossConcT m) td (V2 Double, Log Double) ()
+drawParticle :: Monad m => MSF m (V2 Double, Log Double) Picture
 drawParticle = proc (position, probability) -> do
-  drawBall -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet)
+  drawBall' -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet)
 
 drawParticles :: MonadIO m => BehaviourF (GlossConcT m) td [(V2 Double, Log Double)] ()
 drawParticles = proc particles -> do
@@ -203,8 +169,6 @@ drawParticles = proc particles -> do
 
 data Result = Result
   {
-    --   estimate :: Position
-    -- stdDev :: Double
    measured :: Observation
   , latent :: State
   , particles :: [(State, Log Double)]

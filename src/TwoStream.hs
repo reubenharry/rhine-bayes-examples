@@ -1,18 +1,47 @@
 {-# LANGUAGE TupleSections #-}
 module TwoStream where
 import Control.Monad.Bayes.Class
+    ( MonadSample(uniformD, normal), MonadInfer, normalPdf )
 import FRP.Rhine
-import qualified Data.Vector.Sized as V
-import Example hiding (posterior, observationModel, visualisation, Result, latent, measured, stdDev, estimate, glossClock, prior)
-import GHC.Float
-import Data.MonadicStreamFunction.InternalCore
+    ( arrMCl,
+      reactimateCl,
+      constM,
+      Arrow((&&&), arr),
+      MSF,
+      returnA,
+      (>>>),
+      withSideEffect_,
+      average,
+      BehaviourF,
+      TimeDomain(Diff),
+      VectorSpace((*^)) )
+
+import Example ( Position, Observation, std )
+import GHC.Float ( double2Float, float2Double )
+import Data.MonadicStreamFunction.InternalCore ( MSF(MSF) )
 import FRP.Rhine.Gloss
-import Control.Monad.Trans.Class
-import Control.Monad.Bayes.Sampler
-import Control.Monad.Trans.Identity
-import Inference
-import Control.Monad.Bayes.Population
-import Numeric.Log
+    ( translate,
+      scale,
+      paintIO,
+      defaultSettings,
+      launchGlossThread,
+      Display(InWindow),
+      GlossSettings(display),
+      blue,
+      green,
+      red,
+      withAlpha,
+      circleSolid,
+      color,
+      text,
+      clearIO )
+import Control.Monad.Trans.Class ( MonadTrans(lift) )
+import Control.Monad.Bayes.Sampler ( sampleIO )
+import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
+import Inference ( glossClock, particleFilter, observe, params )
+import Control.Monad.Bayes.Population ( resampleMultinomial )
+import Numeric.Log ( Log )
+import Linear (V2(..))
 
 
 prior :: (MonadSample m, Diff td ~ Float) => BehaviourF m td () (Position, Bool)
@@ -20,7 +49,7 @@ prior = proc () -> do
     b <- boolStream -< True
     m1 <- if b then walk1D -< () else constM (pure 0) -< ()
     m2 <- if not b then walk1D -< () else constM (pure 0) -< ()
-    returnA -< (V.fromTuple (m1, m2), b) 
+    returnA -< (uncurry V2 (m1, m2), b) 
     
     where
 
@@ -34,7 +63,7 @@ prior = proc () -> do
 
 -- observationModel :: NormalizedDistribution m => StochasticSignalTransform m (Position, Bool) Observation
 observationModel = proc (p, _) -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
 
     where noise = constM (normal 0 std)
@@ -65,7 +94,7 @@ gloss = sampleIO $
             latent@(actualPosition, b) <- prior -< ()
             -- returnA -< undefined
             measuredPosition <- observationModel -< latent
-            samples <- particleFilter 100 resampleMultinomial (snd <$> posterior) -< measuredPosition
+            samples <- particleFilter params (snd <$> posterior) -< measuredPosition
             (withSideEffect_ (lift $ lift clearIO) >>> visualisation) -< Result { estimate = 0 -- averageOf samples
                                 , stdDev = 0 -- stdDevOf (first xCoord <$> samples) + stdDevOf (first yCoord <$> samples)
                                 , measured = 0 -- measuredPosition

@@ -5,6 +5,35 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
+
+
+
+{-# LANGUAGE DataKinds #-}
+
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ConstraintKinds #-}
+
+
+
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE Arrows #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
+
+
+{-# LANGUAGE LiberalTypeSynonyms #-}
+
+
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 
 module Switch where
 import Control.Monad.Bayes.Population
@@ -22,13 +51,24 @@ import FRP.Rhine.Gloss
       defaultSettings,
       clearIO,
       launchGlossThread,
-      GlossSettings(display), GlossConcT, red, withAlpha, green, paintIO, scale, text, translate )
+      GlossSettings(display),
+      GlossConcT,
+      red,
+      withAlpha,
+      green,
+      paintIO,
+      scale,
+      text,
+      translate,
+      yellow,
+      addColors,
+      Color )
 import Control.Monad.Bayes.Sampler ( sampleIO )
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
-import qualified Data.Vector.Sized as V
+
 import Numeric.Hamilton ()
 import Numeric.LinearAlgebra.Static ()
-import Inference (pattern V2, particleFilter, observe)
+import Inference (particleFilter, observe, SignalFunction, Stochastic, type (&), Unnormalized, params)
 import Example hiding (Real, drawParticles, drawParticle, visualisation, Result, latent, measured, particles, std, posterior, observationModel, prior)
 import Data.Fixed (mod')
 import Data.MonadicStreamFunction.InternalCore
@@ -37,33 +77,34 @@ import qualified Data.Map as M
 import Data.List (sortOn)
 import Data.Ord (Down(..))
 import FRP.Rhine.Gloss.Common (blue)
-import FRP.Rhine.Gloss (yellow)
-import FRP.Rhine.Gloss (addColors)
 import Witch
-import FRP.Rhine.Gloss (Color)
 import Control.Lens
+import Linear (V2(..))
+import FRP.Rhine.Gloss (Picture)
+import Data.Text (Text)
+import Data.Foldable (fold)
+import Control.Monad.Trans.MSF.List (mapMSF)
 
 
 std :: Double
 std = 0.5
 
 
-switch :: (MonadIO m, Real (Diff cl), MonadSample m) => BehaviourF m (cl) () (Double, Bool)
+switch :: SignalFunction Stochastic () (Double, Bool)
 switch = feedback True $ proc (_, d :: Bool) -> do
-    -- t <- sinceInitS -< ()
     n <- count -< ()
     a <- constM (bernoulli 0.5) -< ()
     returnA -< if n `mod` 50 == 0 then (if a then (-1, True) else (1, False), a) else (if d then (-1, True) else (1, False), d) -- if a then (-1) else 1 else if not a then (-1) else 1
 
 
-prior :: (MonadSample m, Diff td ~ Double, MonadIO m) => BehaviourF m td () (Position, (Bool, Bool))
+prior :: SignalFunction Stochastic () (Position, (Bool, Bool))
 prior = proc () -> do
 
     (x, dir1) <- walk1DSwitch -< ()
     (y, dir2) <- walk1DSwitch -< ()
-    returnA -< (V.fromTuple (x,y), (dir1, dir2))
-  
-    -- fmap (first V.fromTuple . (\((d1,b1), (d2,b2)) -> ((d1,d2), (b1,b2)))) (walk1D &&& walk1D) where
+    returnA -< (uncurry V2 (x,y), (dir1, dir2))
+
+    -- fmap (first uncurry V2 . (\((d1,b1), (d2,b2)) -> ((d1,d2), (b1,b2)))) (walk1D &&& walk1D) where
 
     where
 
@@ -76,24 +117,21 @@ prior = proc () -> do
 
     decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
-observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (Position, b) Observation
-observationModel = proc (p, b) -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
-    -- isOutlier <- constM (bernoulli 0.1) -< ()
+observationModel :: SignalFunction Stochastic (Position, b) Observation
+observationModel = proc (p, _) -> do
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
-    -- if isOutlier then fmap V.fromTuple $ outlier &&& outlier-< () else returnA -< p + n 
 
     where
         noise = constM (normal 0 std)
-        -- outlier = constM ((\x -> 10 * (x - 0.5)) <$> random)
 
 
-posterior :: (MonadInfer m, Diff td ~ Double, MonadIO m) => BehaviourF m td Observation (Position, (Bool, Bool))
+posterior :: SignalFunction (Stochastic & Unnormalized) Observation (Position, (Bool, Bool))
 posterior = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY, b) <- prior -< () -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+  latent@(V2 trueX trueY, b) <- prior -< () -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
 --   observation <- observationModel -< latent
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
-  returnA -< (latent)
+  returnA -< latent
 
 
 
@@ -101,16 +139,13 @@ posterior = proc (V2 oX oY) -> do
 -- display
 ----------
 
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl glossClock proc () -> do
+gloss :: SignalFunction Stochastic Text Picture
+gloss = proc _ -> do
             actualPosition <- prior -< ()
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
+            samples <- particleFilter params posterior -< measuredPosition
             let bs = head $ sortOn (Down . snd) $ M.toList $ M.mapKeys disp $ foldr (\(bb, kd) -> M.alter (\case Nothing -> Just kd; Just x ->  Just (x +kd) ) bb ) (mempty :: M.Map (Bool, Bool) (Log Double)) $  fmap (first snd) samples
-            (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
+            visualisation -< Result {
                                 particles = samples
                                 , measured = measuredPosition
                                 , latent = actualPosition
@@ -118,40 +153,35 @@ gloss = sampleIO $
                                 }
 
 
+disp :: (Bool, Bool) -> [Char]
 disp (True, True) = "Left Down"
 disp (False, False) = "Right Up"
 disp (True, False) = "Left Up"
 disp (False, True) = "Right Down"
 
+col :: (Bool, Bool) -> Color
 col = \case
   (True, True) -> red
   (True, False) -> blue
   (False, True) -> green
   (False, False) -> yellow
 
-visualisation :: MonadIO m => Diff td ~ Double => BehaviourF (GlossConcT m) td Result ()
+visualisation :: Monad m => MSF m Result Picture
 visualisation = proc Result { particles, measured, latent, direction} -> do
 
-  drawParticles -< particles & traverse . _1 . _2 %~ col 
-  -- let inferredColor = foldr1 addColors $ ( col . snd . fst) <$> particles
-  drawBall -< (measured, 0.05, red)
+  parts <- fold <$> mapMSF drawParticle -< particles & traverse . _1 . _2 %~ col
+  obs <- drawBall' -< (measured, 0.05, red)
   let (pos, trueColor) =  latent
-  drawBall -< (pos, 0.3, withAlpha 0.5 $ col trueColor)
-  arrMCl paintIO -< translate (-280) (220) $ scale 0.2 0.2 $ text ("Inferred " <> direction)
-  arrMCl paintIO -< translate (-280) 250 $ scale 0.2 0.2 $ text ("True: " <> disp trueColor)
+  ball <- drawBall' -< (pos, 0.3, withAlpha 0.5 $ col trueColor)
+  let infText = translate (-280) 220 $ scale 0.2 0.2 $ text ("Inferred " <> direction)
+  let trueText = translate (-280) 250 $ scale 0.2 0.2 $ text ("True: " <> disp trueColor)
+  returnA -< (parts <> obs <> ball <> infText <> trueText)
 
 
-drawParticle :: MonadIO m => BehaviourF (GlossConcT m) td ((Position, Color), Log Double) ()
+drawParticle :: Monad m => MSF m ((Position, Color), Log Double) Picture
 drawParticle = proc ((position, c), probability) -> do
-  drawBall -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) c)
+  drawBall' -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) c)
 
-drawParticles :: MonadIO m => BehaviourF (GlossConcT m) td [((Position, Color), Log Double)] ()
-drawParticles = proc particles -> do
-  case particles of
-    [] -> returnA -< ()
-    p : ps -> do
-      drawParticle -< p
-      drawParticles -< ps
 data Result = Result
   {
     --   estimate :: Position
@@ -204,7 +234,7 @@ data Result = Result
 -- --         returnA -< input
 
 -- prior :: NormalizedDistribution m => StochasticSignal m Position
--- prior = fmap V.fromTuple $ walk1D &&& walk1D where
+-- prior = fmap (uncurry V2) $ walk1D &&& walk1D where
 
 --     walk1D = proc _ -> do
 --         acceleration <- constM (normal 0 5) -< ()

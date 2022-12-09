@@ -36,11 +36,11 @@ import FRP.Rhine.Gloss
       GlossSimClockIO(..), Event (EventKey), Key (Char), KeyState (Down), violet, Color )
 import Control.Monad.Bayes.Sampler ( sampleIO, SamplerIO )
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
-import qualified Data.Vector.Sized as V
+
 import Numeric.Hamilton ()
 import Numeric.LinearAlgebra.Static ()
 import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
-import Inference (pattern V2, V2, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, onlineRMSMC, observe)
+import Inference (NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, onlineRMSMC, observe)
 import Numeric.Log
 import qualified Control.Category as C
 import FRP.Rhine
@@ -48,17 +48,19 @@ import qualified Control.Monad.Trans.MSF as DunaiReader
 import Data.MonadicStreamFunction.InternalCore
 import Data.Functor (($>))
 import qualified Control.Monad.Bayes.Population as Bayes
+import Linear (V2)
+import Linear.V2 (V2(..))
 
 
 std :: Double
 std = 0.5
 
-type Observation = V.Vector 2 Double
-type Position = V.Vector 2 Double
+type Observation = V2 Double
+type Position = V2 Double
 
 
 prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () Position
-prior = fmap V.fromTuple $ walk1D &&& walk1D where
+prior = fmap (uncurry V2) $ walk1D &&& walk1D where
 
     walk1D = proc _ -> do
         acceleration <- constM (normal 0 4 ) -< ()
@@ -70,10 +72,10 @@ prior = fmap V.fromTuple $ walk1D &&& walk1D where
 
 observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td Position Observation
 observationModel = proc p -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     -- isOutlier <- constM (bernoulli 0.1) -< ()
     returnA -< p + n
-    -- if isOutlier then fmap V.fromTuple $ outlier &&& outlier-< () else returnA -< p + n 
+    -- if isOutlier then fmap (uncurry V2) $ outlier &&& outlier-< () else returnA -< p + n 
 
     where 
         noise = constM (normal 0 std)
@@ -82,7 +84,7 @@ observationModel = proc p -> do
 
 posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation Position
 posterior = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY) <- prior -< () -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+  latent@(V2 trueX trueY) <- prior -< () -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
 --   observation <- observationModel -< latent
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
@@ -172,7 +174,7 @@ particleFilter :: forall m cl a b . Monad m =>
   (forall x . Population m x -> Population m x)
   -> ClSF (Population m) cl a b
   -> ClSF m cl a [(b, Log Double)]
-particleFilter nParticles resampler = withReaderS $ particleFilter' nParticles resampler
+particleFilter n resampler = withReaderS $ particleFilter' n resampler
 
 
 withReaderS :: (Monad m1, Monad m2) =>
@@ -188,7 +190,7 @@ particleFilter' :: forall m a b . Monad m =>
   (forall x . Population m x -> Population m x)
   -> MSF (Population m) a b
   -> MSF m a [(b, Log Double)]
-particleFilter' nParticles resampler msf = particleFilter'' $ spawn nParticles $> msf
+particleFilter' n resampler msf = particleFilter'' $ spawn n $> msf
   where
     particleFilter'' :: Population m (MSF (Population m) a b) -> MSF m a [(b, Log Double)]
     particleFilter'' msfs = MSF $ \a -> do

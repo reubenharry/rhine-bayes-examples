@@ -26,12 +26,13 @@ source-repository head
 library
   exposed-modules:
       Active
+      Bearing
       BetaBern
       Circular
       Communication
-      ComplexExample
       Control
       Coordination
+      Deterministic
       Example
       Future
       GlossInput
@@ -43,14 +44,14 @@ library
       Lazy
       Loop
       MainSF
+      Mutual
+      MutualStoch
       NoiseLevel
-      Paths
       Physics
       PMMH
       Pong
       PongExample
       RMSMC
-      ShowSometimes
       Split
       Switch
       TwoObjects
@@ -75,10 +76,13 @@ library
       ConstraintKinds
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      adjunctions
+      JuicyPixels
+    , JuicyPixels-repa
+    , adjunctions
     , aeson
     , backprop
     , base >=4.7 && <5
+    , bytestring
     , comonad
     , containers
     , data-fix
@@ -101,6 +105,7 @@ library
     , mmorph
     , monad-bayes
     , recursion-schemes
+    , repa
     , rhine
     , rhine-gloss
     , statistics

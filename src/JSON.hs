@@ -103,7 +103,7 @@ gloss = sampleIO $
             rotation <- Example.walk1D -< ()
             withSideEffect_ (lift clearIO) >>> visualize -< (tree, into @Float rotation)
             -- measuredPosition <- observationModel -< actualPosition
-            -- samples <- particleFilter 200 resampleMultinomial posterior -< measuredPosition
+            -- samples <- particleFilter params {n = 200} posterior -< measuredPosition
             -- (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
             --                     particles = samples
             --                     , measured = measuredPosition

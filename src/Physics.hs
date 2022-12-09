@@ -47,11 +47,11 @@ import Control.Monad.Bayes.Sampler ( sampleIO, SamplerIO )
 import qualified Control.Monad.Trans.MSF as DunaiReader
 import Data.Tuple ( swap )
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
-import qualified Data.Vector.Sized as V
+
 import Numeric.Hamilton (System, mkSystem', Phase (Phs), stepHam, fromPhase, underlyingPos, Config (cfgPositions))
 import Numeric.LinearAlgebra.Static (vec2, Sized (extract))
 import Control.Monad.Trans.Identity ( IdentityT(runIdentityT) )
-import Inference (pattern V2, pattern V1, xCoord, yCoord, NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, observe)
+import Inference (NormalizedDistribution, StochasticSignal, StochasticSignalTransform, UnnormalizedDistribution, particleFilter, observe)
 import Control.Applicative
 import Control.Monad.Trans.MSF (runReader, runReaderS, readerS)
 import Data.Functor.Identity
@@ -61,80 +61,81 @@ import TwoStream (liftMSF)
 
 
 
-s :: (forall a . RealFloat a => a) -> System 1 1
-s n = mkSystem' 1   -- masses
-    id
-    (\(V1 x) -> ((n :: forall a . RealFloat a => a)/10) * (x**2))
-                --   (\(V1 θ)   -> V2 (sin θ) (0.5 - cos θ))     -- coordinates
-                --   (\(V2 _ y) -> y                       )     -- potential
+-- s :: (forall a . RealFloat a => a) -> System 1 1
+-- s n = mkSystem' 1   -- masses
+--     id
+--     (\(V1 x) -> ((n :: forall a . RealFloat a => a)/10) * (x**2))
+--                 --   (\(V1 θ)   -> V2 (sin θ) (0.5 - cos θ))     -- coordinates
+--                 --   (\(V2 _ y) -> y                       )     -- potential
 
 
--- s :: System 2 1
--- s = mkSystem' (vec2 1 1                             )     -- masses
---                   (\(V1 θ)   -> V2 (sin θ) (0.5 - cos θ))     -- coordinates
---                   (\(V2 _ y) -> y                       )     -- potential
+-- -- s :: System 2 1
+-- -- s = mkSystem' (vec2 1 1                             )     -- masses
+-- --                   (\(V1 θ)   -> V2 (sin θ) (0.5 - cos θ))     -- coordinates
+-- --                   (\(V2 _ y) -> y                       )     -- potential
 
 
--- s2 :: System 2 1
--- s2 = mkSystem' (vec2 1 1                             )     -- masses
---                   (\(V1 θ)   -> V2 (sin θ * 2) (0.5 - cos θ * 2))     -- coordinates
---                   (\(V2 _ y) -> y                       )     -- potential
+-- -- s2 :: System 2 1
+-- -- s2 = mkSystem' (vec2 1 1                             )     -- masses
+-- --                   (\(V1 θ)   -> V2 (sin θ * 2) (0.5 - cos θ * 2))     -- coordinates
+-- --                   (\(V2 _ y) -> y                       )     -- potential
 
-foo = showFloat  
+-- foo = showFloat  
 
-system :: (Monad m, MonadSample m) => MSF m (System 1 1) (System 1 1)
-system = liftMSF do
-    x <- (100*) <$> random
-    return (constM (pure (s $ (encodeFloat (floor x) 2))))
+-- system :: (Monad m, MonadSample m) => MSF m (System 1 1) (System 1 1)
+-- system = liftMSF do
+--     x <- (100*) <$> random
+--     return (constM (pure (s $ (encodeFloat (floor x) 2))))
 
--- (uniformD [constM (pure $ s 1), constM (pure $ s 2)])
+-- -- (uniformD [constM (pure $ s 1), constM (pure $ s 2)])
 
-prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (Phase 1)
-prior = feedback (Phs 1 1) $ proc (_, phasePoint) -> do
-  time <- sinceLastS -< ()
-  s <- system -< s 1
-  let next = stepHam time s phasePoint
-  returnA -< (next, next)
+-- prior :: (MonadSample m, Diff td ~ Double) => BehaviourF m td () (Phase 1)
+-- prior = feedback (Phs 1 1) $ proc (_, phasePoint) -> do
+--   time <- sinceLastS -< ()
+--   s <- system -< s 1
+--   let next = stepHam time s phasePoint
+--   returnA -< (next, next)
 
-observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (Phase 1) Observation
-observationModel = proc p -> do
-    -- n <- fmap V.fromTuple $ noise &&& noise -< ()
-    -- isOutlier <- constM (bernoulli 0.1) -< ()
-    returnA -< getPos p
-    -- if isOutlier then fmap V.fromTuple $ outlier &&& outlier-< () else returnA -< p + n 
+-- observationModel :: (MonadSample m, Diff td ~ Double) => BehaviourF m td (Phase 1) Observation
+-- observationModel = proc p -> do
+--     -- n <- fmap (uncurry V2) $ noise &&& noise -< ()
+--     -- isOutlier <- constM (bernoulli 0.1) -< ()
+--     returnA -< getPos p
+--     -- if isOutlier then fmap (uncurry V2) $ outlier &&& outlier-< () else returnA -< p + n 
 
-    -- where 
-    --     noise = constM (normal 0 std)
+--     -- where 
+--     --     noise = constM (normal 0 std)
 
-std :: Double
-std = 2
-        -- outlier = constM ((\x -> 10 * (x - 0.5)) <$> random)
+-- std :: Double
+-- std = 2
+--         -- outlier = constM ((\x -> 10 * (x - 0.5)) <$> random)
 
 
-posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation (Phase 1)
-posterior = proc (V2 oX oY) -> do
-  latent <- prior -< () 
-  obs@(V2 trueX trueY) <- observationModel -< latent -- fmap V.fromTuple $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
-  observe -< normalPdf oY std trueY * normalPdf oX std trueX
-  returnA -< latent
+-- posterior :: (MonadInfer m, Diff td ~ Double) => BehaviourF m td Observation (Phase 1)
+-- posterior = proc (V2 oX oY) -> do
+--   latent <- prior -< () 
+--   obs@(V2 trueX trueY) <- observationModel -< latent -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+--   observe -< normalPdf oY std trueY * normalPdf oX std trueX
+--   returnA -< latent
 
-getPos pos = (\x -> V.fromTuple (0,x)) $ (V.! 0) $ extract $ underlyingPos (s 0) $ cfgPositions $ fromPhase (s 0) pos
+-- getPos pos = (\x -> uncurry V2 (0,x)) $ (V.! 0) $ extract $ underlyingPos (s 0) $ cfgPositions $ fromPhase (s 0) pos
 
 gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl glossClock proc () -> do
-            actualPosition <- prior -< ()
-            measuredPosition <- observationModel -< actualPosition
-            n <- fmap V.fromTuple $ noise &&& noise -< ()
-            samples <- particleFilter 100 resampleMultinomial posterior -< (measuredPosition + n)
-            (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
-                                particles = first getPos <$> samples
-                                , measured = measuredPosition + n
-                                , latent = getPos actualPosition
-                                }
-            where noise = constM (normal 0 std)
+gloss = undefined 
+-- sampleIO $
+--         launchGlossThread defaultSettings
+--             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
+--         $ reactimateCl glossClock proc () -> do
+--             actualPosition <- prior -< ()
+--             measuredPosition <- observationModel -< actualPosition
+--             n <- fmap (uncurry V2) $ noise &&& noise -< ()
+--             samples <- particleFilter params posterior -< (measuredPosition + n)
+--             (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
+--                                 particles = first getPos <$> samples
+--                                 , measured = measuredPosition + n
+--                                 , latent = getPos actualPosition
+--                                 }
+--             where noise = constM (normal 0 std)
 
 --   let newPoint2 = stepHam (float2Double time * 2) s2 phasePoint
 

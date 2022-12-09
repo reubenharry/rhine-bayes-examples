@@ -1,4 +1,4 @@
-# Agents that update their beliefs in real time
+# Real-time Bayesian agents
 
 ![Particle filter](notebooks/basic-tracker.gif)
 
@@ -9,7 +9,7 @@ The purple swarm represents the system's guess as to the true position of the pa
 Both the simulation and the inference run **in real time**, so this gif is just a short snippet of a live demo.
 
 
-![Particle filter](notebooks/complex-tracker.gif)
+![Particle filter](notebooks/mutual.gif)
 
 In this more complex scenario, you again see a green particle move around stochastically, now inside a box. This time, there are no observations at first, so the system is uncertain about the position. It is also uncertain about whether the particle is green or red, as shown at the bottom.
 
@@ -17,22 +17,32 @@ After a few seconds, the system receives the statement "The particle is in the b
 
 Then, the system starts to receive noisy observations of the position, and the uncertainty decreases again.
 
-Finally, it receives the statement "The particle is green", and so resolves its remaining uncertainty.
+Finally, it receives the statement "The particle is green", and so resolves its remaining uncertainty. -->
+
+![Particle filter](notebooks/two-agents.gif)
+
+In this case, there are two agents (corresponding to the big yellow and green circles). Each moves stochastically, but with a bias to move away from the other. However, the catch is that each agent doesn't *know* the position of the other, so they have to infer the position from noisy observations and move away from the expectation of that inferred position.
 
 # The code
 
 The code is written in a *probabilistic programming library* in the functional programming language Haskell. The model for the first example looks like this:
 
 ```haskell
-prior :: StochasticProcess Position
-prior = fmap V.fromTuple $ walk1D &&& walk1D where
+prior :: SignalFunction Stochastic () Position
+prior = proc _ -> do
+  x <- walk1D -< ()
+  y <- walk1D -< ()
+  returnA -< V2 x y
 
+  where 
+
+    walk1D :: SignalFunction Stochastic () Double
     walk1D = proc _ -> do
-        dacceleration <- constM (normal 0 8 ) -< ()
-        acceleration <- decayingIntegral -< dacceleration
-        velocity <- decayingIntegral -< acceleration -- Integral, dying off exponentially
-        position <- decayingIntegral -< velocity
-        returnA -< position
+      dacceleration <- constM (normal 0 8 ) -< ()
+      acceleration <- decayingIntegral 1 -< dacceleration
+      velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
+      position <- decayingIntegral 1 -< velocity
+      returnA -< position
 ```
 
 
@@ -41,7 +51,7 @@ The `prior` describes the system's prior knowledge of how the green particle mov
 ```haskell
 observationModel :: ConditionalStochasticProcess Position Observation
 observationModel = proc p -> do
-    n <- fmap V.fromTuple $ noise &&& noise -< ()
+    n <- fmap (uncurry V2) $ noise &&& noise -< ()
     returnA -< p + n
     where 
         noise = constM (normal 0 std)
@@ -66,6 +76,34 @@ inference =  particleFilter SMCConfig {numParticles = 100, resampler = resampleM
 ```
 
 The `particleFilter` inference method takes the posterior, and produces a (normalized) conditional stochastic process representing the position of a set of particles and their corresponding weights, given the observations. This is what we sample from to obtain the purple particles shown in the first gif above.
+
+
+## Multiple agents
+
+For the code with multiple agents, we can define them in a mutually recursive fashion:
+
+```haskell
+main :: SignalFunction (Stochastic & Feedback) Text Picture
+main = proc inputText -> do
+  rec
+    ballObs1 <- iPre 0 >>> observationModel -< ball1
+    inferred1 <- particleFilter params {n = 20} posterior -< (ball2, ballObs1)
+    expectedBall1 <- arr expected -< inferred1
+    ball2 <- iPre 0 >>> moveAwayFrom -< expectedBall1
+
+
+    ballObs2 <- iPre 0 >>> observationModel -< ball2
+    inferred2 <- particleFilter params {n = 20} posterior -< (ball1, ballObs2)
+    expectedBall2 <- arr expected -< inferred2
+    ball1 <- moveAwayFrom -< expectedBall2
+
+  pic1 <- renderObjects yellow -< Result ballObs1 ball1 inferred1
+  pic2 <- renderObjects green -< Result ballObs2 ball2 inferred2
+  returnA -< pic1 <> pic2
+```
+
+Here, the position of `ball2` (the green ball) moves away (stochastically) from the expected position of ball 1 (`expectedBall1`), which depends on the posterior inference of ball1's position (`inferred1`) given the observation (`ballObs1`), which is produced from the position of `ball1`. `ball1` depends on `ball2` in the same fashion. 
+
 # The approach
 
 This is all implemented using a combination of (1) a paradigm for representing Bayesian probability and inference known as **probabilistic programming**, and (2) a paradigm for representing real-time interactive systems known as (functional) **reactive programming**.

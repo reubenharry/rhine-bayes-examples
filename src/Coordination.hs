@@ -14,47 +14,72 @@
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
+
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
 module Coordination where
-import FRP.Rhine.Gloss hiding (Up, Down)
+import FRP.Rhine.Gloss
+    ( translate,
+      scale,
+      paintIO,
+      arrMCl,
+      reactimateCl,
+      defaultSettings,
+      launchGlossThread,
+      constM,
+      Arrow(first, arr, (&&&)),
+      Display(InWindow),
+      MonadIO(..),
+      GlossConcT,
+      GlossSettings(display),
+      returnA,
+      (>>>),
+      morphS,
+      iPre,
+      withSideEffect_,
+      average,
+      BehaviourF,
+      TimeDomain(Diff),
+      VectorSpace((*^), dot, (^+^), zeroVector),
+      blue,
+      green,
+      red,
+      violet,
+      withAlpha,
+      circleSolid,
+      color,
+      clearIO,
+      Color )
 import Prelude hiding (until)
 import qualified Example
 import qualified Control.Monad.Morph as MM
 import Linear.V2 (V2(..), _x, _y, angle, unangle)
-import Control.Monad.Bayes.Class
-import Numeric.Log
-import Control.Monad.Bayes.Sampler
-import Control.Monad.Morph
-import Inference hiding (V2)
+import Control.Monad.Bayes.Class ( MonadSample(normal), normalPdf )
+import Numeric.Log ( Log(ln) )
+import Control.Monad.Bayes.Sampler ( sampleIO )
+import Control.Monad.Morph ( MonadTrans(lift) )
+import Inference
+    ( Stochastic,
+      type (&),
+      Process,
+      Feedback,
+      Unnormalized,
+      hold,
+      particleFilter,
+      observe, SMCSettings (n), params )
 import Control.Monad.Bayes.Population (resampleMultinomial)
 import Active (averageOf)
 import Witch (into)
-import Control.Lens
-import Control.Monad (forever, replicateM, void)
-import qualified Control.Monad.Trans.State as S
+import Control.Lens ( (^.), view, makeLenses )
+import Control.Monad (forever, void)
 import Data.Fixed (mod')
-import Control.Monad.Fix (MonadFix)
-import Numeric.LinearAlgebra.Static.Backprop hiding ((&))
-import qualified Numeric.LinearAlgebra.Static.Backprop as VV hiding ((&))
-import Numeric.Backprop
-import GHC.Generics (Generic)
-import Generic.Data (Generically(..))
-import GHC.TypeLits (KnownNat, Nat)
-import Data.Foldable (Foldable(foldl'))
-import Data.Sequence (replicateM)
-import Data.Vector hiding (foldl')
-import qualified Numeric.LinearAlgebra.Static as A
-import System.Console.Haskeline (getInputChar, runInputT)
-import qualified System.Console.Haskeline as H
-import Control.Monad.Catch (MonadMask, MonadCatch, MonadThrow)
+import Numeric.LinearAlgebra.Static.Backprop ()
+import Numeric.Backprop ()
+import GHC.TypeLits (Nat)
+import Data.Vector ()
 import Control.Concurrent (newMVar, forkIO, swapMVar)
-import qualified Control.Category as C
-import Data.Maybe (isJust)
-import Text.Read (readMaybe)
-import Data.Kind (Type)
 
 
 -- bouncing
@@ -78,7 +103,7 @@ mkAngle a = Angle $ a `mod'` (2 * pi)
 
 type Observation = V2 Double
 type Agent2Action = Angle
-type Agent1Action = Angle 
+type Agent1Action = Angle
 type Particles = [(State, Log Double)]
 data Direction = Up | Down
 
@@ -92,7 +117,7 @@ data Direction = Up | Down
 
 instance VectorSpace Angle Double where
     zeroVector = Angle 0
-    Angle x ^+^ Angle y  = Angle $ x + y 
+    Angle x ^+^ Angle y  = Angle $ x + y
     x *^ Angle y = Angle (x * y)
     Angle x `dot` Angle y = abs $ x - y
 
@@ -105,7 +130,7 @@ prior = movement where
         (Angle ball2Angle) <- iPre (Angle 1) >>> decayIntegral 1  -< agent1Action
         let ball2Position@(V2 ball2PositionX ball2PositionY) = angle ball2Angle
         ballPosX <- decayIntegral 1 -< ball1PosVx + (-ball2PositionX * 0.2 )
-        ballPosY <- decayIntegral 1 -< ball1PosVy + (-ball2PositionY * 0.2) 
+        ballPosY <- decayIntegral 1 -< ball1PosVy + (-ball2PositionY * 0.2)
         ball1Position <- iPre 0 -< V2 ballPosX ballPosY
         returnA -< State {
             _ball2Pos = ball2Position + ball1Position ,
@@ -126,10 +151,10 @@ prior = movement where
 observationModel :: Process Stochastic State Observation
 observationModel = proc state -> do
     (n1, n2) <- noise &&& noise -< ()
-    returnA -< (state ^. ball1Pos) + V2 n1 n2
+    returnA -< state ^. ball1Pos + V2 n1 n2
 
     where
-        noise = constM (normal 0 1) 
+        noise = constM (normal 0 1)
 
 type System = Process Stochastic (Agent1Action, Agent2Action) State
 
@@ -139,7 +164,7 @@ type family ActionOf (i :: Nat) where
 
 type Agent (i :: Nat) = Process Stochastic Observation (ActionOf i)
 
-posteriorA1 :: System 
+posteriorA1 :: System
     -> Agent 2
     -> Process (Stochastic & Unnormalized) (Observation, Agent1Action) State
 posteriorA1 system a2 = proc (obs@(V2 oX oY), agent1Action) -> do
@@ -151,7 +176,7 @@ posteriorA1 system a2 = proc (obs@(V2 oX oY), agent1Action) -> do
 controlA1 :: Process Stochastic Particles Agent1Action
 controlA1 = proc particles -> do
     let expectedX = V2 (averageOf (fmap (first (view _x . _ball1Pos)) particles)) (averageOf (fmap (first (view _y . _ball1Pos)) particles))
-    returnA -< Angle $ unangle' expectedX 
+    returnA -< Angle $ unangle' expectedX
 
 
 
@@ -160,7 +185,7 @@ mainSignal = proc () -> do
     rec
         (observation, state) <- system prior -< (agent1Action, agent2Action)
         (agent1Action, particles) <- agent1 prior -< (observation, agent1Action)
-        (agent2Action, particles2) <- agent2 prior -< (observation )
+        (agent2Action, particles2) <- agent2 prior -< observation
 
     returnA -< (state, particles, observation)
 
@@ -175,14 +200,14 @@ mainSignal = proc () -> do
     agent1 :: System -> Process Stochastic (Observation, Agent1Action) (Agent1Action, Particles)
     agent1 prior = proc (observation, currentagent1Action) -> do
 
-        particles <- particleFilter 150 resampleMultinomial (posteriorA1 prior (fst <$> agent2 prior)) -< (observation, currentagent1Action)
+        particles <- particleFilter params {n = 150} (posteriorA1 prior (fst <$> agent2 prior)) -< (observation, currentagent1Action)
         agent1Action <- controlA1 -< particles
         returnA -< (agent1Action, particles)
 
-    agent2 :: System -> Process Stochastic (Observation) (Agent2Action, Particles)
+    agent2 :: System -> Process Stochastic Observation (Agent2Action, Particles)
     agent2 = proc o -> do
         returnA -< undefined
-    
+
     prior2 = undefined
 
     -- controlA2 = undefined
@@ -193,10 +218,10 @@ gloss :: IO ()
 gloss = sampleIO $
         launchGlossThread defaultSettings
             { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ do 
+        $ do
             mvar <- liftIO $ newMVar ""
-            _ <- liftIO $ void $ forkIO $ forever do 
-                x <- getLine 
+            _ <- liftIO $ void $ forkIO $ forever do
+                x <- getLine
                 swapMVar mvar x
             reactimateCl Example.glossClock proc () -> do
 
