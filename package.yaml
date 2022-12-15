@@ -89,22 +89,19 @@ library:
     - ConstraintKinds
 
 executables:
-  physics-exe:
+  gloss:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
-    # - -threaded
     - -O2
     dependencies:
     - physics
 
-tests:
-  physics-test:
-    main:                Spec.hs
-    source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - physics
+  # gloss-input:
+  #   main:                UserInput.hs
+  #   source-dirs:         app
+  #   ghc-options:
+  #   # - -threaded
+  #   - -O2
+  #   dependencies:
+  #   - physics

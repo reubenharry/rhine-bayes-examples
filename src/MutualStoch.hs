@@ -39,7 +39,7 @@ import Control.Monad.Bayes.Sampler
 import Control.Monad.Morph
 import Inference hiding (V2)
 import Control.Monad.Bayes.Population (resampleMultinomial)
-import Active (averageOf)
+import Active (averageOf, calculateXandYVariances)
 import Witch (into)
 import Control.Lens hiding (both)
 import Control.Monad (forever, void)
@@ -47,7 +47,7 @@ import Control.Concurrent (newMVar, forkIO, swapMVar, MVar, readMVar)
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Control.Monad.Trans.MSF (switch)
+import Control.Monad.Trans.MSF (switch, performOnFirstSample)
 import Circular (Angle (Angle))
 import Example (drawBall', interpret, Position, Result(..))
 import Data.Foldable (Foldable(fold))
@@ -55,6 +55,9 @@ import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Text (Text)
 import qualified Linear as L
 import Debug.Trace (traceM)
+import Communication (empirical)
+import Control.Monad.Bayes.Enumerator (enumerate)
+import Concurrent (GlossInput)
 
 -- bouncing
 
@@ -111,6 +114,21 @@ moveTowards = feedback 0 proc (otherBall, prevPos@(V2 prevPosX prevPosY)) -> do
     acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
     let repulsion = (negate $ prevPos - otherBall )
     velocity <- decayingIntegral 1 -< acceleration + repulsion -- Integral, dying off exponentially
+    position <- decayingIntegral 1 -< velocity
+
+    returnA -< (position, position)
+
+moveTowardsWhenCertain :: SignalFunction Stochastic [(Position, Log Double)] Position
+moveTowardsWhenCertain = feedback 0 proc (otherBall, prevPos@(V2 prevPosX prevPosY)) -> do
+
+    -- dacceleration <- constM (normal 0 8 ) &&& constM (normal 0 8 ) -< ()
+    -- acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
+    -- let repulsion = (negate $ prevPos - otherBall )
+    let (varianceX, varianceY) = calculateXandYVariances otherBall
+    let expectation = expected otherBall
+    let force = if varianceX < 0.3 && varianceY < 0.3 then (negate $ prevPos - expectation) else 0
+    -- arrM traceM -< show (varianceX, varianceY)
+    velocity <- decayingIntegral 1 -< force * 4 -- Integral, dying off exponentially
     position <- decayingIntegral 1 -< velocity
 
     returnA -< (position, position)
@@ -179,6 +197,15 @@ posterior = proc (ballAPos, ballBObs) -> do
     ballB <- iPre 0 >>> moveAwayFrom -< ballAPos
     observe -< normalPdf2D ballB std ballBObs
     returnA -< ballB
+
+
+posteriorMaybeObs :: SignalFunction (Stochastic & Unnormalized) (Observation, Bool) Position
+posteriorMaybeObs = proc (V2 oX oY, condition) -> do
+  latent@(V2 trueX trueY) <- prior -< ()
+  if condition then 
+    observe -< normalPdf oY std trueY * normalPdf oX std trueX
+    else returnA -< ()
+  returnA -< latent
 
 normalPdf2D :: V2 Double -> Double -> V2 Double -> Log Double
 normalPdf2D (V2 x1 y1) std (V2 x2 y2) = normalPdf x1 std x2 * normalPdf y1 std y2
@@ -256,12 +283,81 @@ selfBelief = proc inputText -> do
             observe -< normalPdf2D pos std obs
             returnA -< pos
 
+followWhenCertain :: SignalFunction (Stochastic & InputOutput) GlossInput Picture
+followWhenCertain = proc glossInput  -> do
+    
+    ball1 <- Example.prior -< ()
+    -- (_, showObs) <- interpret -< inputText
+    let showObs = undefined -- glossInput ^. keys . contains
+    -- arrM (liftIO . print) -< undefined
+    ballObs <- iPre 0 >>> observationModel -< ball1 
+    inferredBall <- particleFilter params {n = 100} posteriorMaybeObs -< (ballObs, showObs)
+    ball2 <- moveTowardsWhenCertain -< inferredBall
+    
+    pic <- renderObjects yellow -< Result (if showObs then ballObs else 1000) ball1 inferredBall
+    pic2 <- renderObjects green -< Result 1000 ball2 []
+    returnA -< pic <> pic2
+
+    where
+
+        post :: SignalFunction (Stochastic & Unnormalized) (Observation, Position) Position
+        post = proc (obs, ball) -> do
+            pos <- iPre 0 >>> moveTowards -< ball
+            -- pos <- Example.prior -< ()
+            observe -< normalPdf2D pos std obs
+            returnA -< pos
+
+
+convention :: SignalFunction (Stochastic & Feedback) Text Picture
+convention = proc inputText -> do
+  rec
+    
+    convention1 <- iPre [(True, 1)] >>> arrM empirical -< c1
+    ballObs1 <- iPre (0, True) >>> observationModel -< (ball1, convention1)
+    inferred1 <- particleFilter params {n = 100} languagePosterior -< (ball2, ballObs1)
+    let (inferredBall1, c2) = (first fst <$> inferred1, first snd <$> inferred1)
+    expectedBall1 <- arrM empirical -< inferredBall1
+    ball2 <- iPre 0 >>> moveAwayFrom -< expectedBall1
+
+    convention2 <- arrM empirical -< c2
+    ballObs2 <- iPre (0, True) >>> observationModel -< (ball2, convention2)
+    inferred2 <- particleFilter params {n = 100} languagePosterior -< (ball1, ballObs2)
+    let (inferredBall2, c1) = (first fst <$> inferred2, first snd <$> inferred2)
+    expectedBall2 <- arrM empirical -< inferredBall2
+    ball1 <- moveAwayFrom -< expectedBall2
+
+  pic1 <- renderObjects yellow -< Result ballObs1 ball1 inferredBall1
+  pic2 <- renderObjects green -< Result ballObs2 ball2 inferredBall2
+  returnA -< pic1 <> pic2 <> 
+    translate (-300) 0 (text (show convention1)) <> translate 300 0 (text (show convention2))
+
+  where 
+    languagePosterior :: SignalFunction (Stochastic & Unnormalized) (Position, Observation) (Position, Language)
+    languagePosterior = proc (ballAPos, ballBObs) -> do
+
+        ballB <- iPre 0 >>> moveAwayFrom -< ballAPos
+        language <- performOnFirstSample (uniformD [constM $ pure True, constM $ pure False]) -< ()
+        observe -< normalPdf2D ballB std ((if language then id else negate) ballBObs)
+        returnA -< (ballB, language)
+        
+    observationModel :: SignalFunction Stochastic (Position, Language) Observation
+    observationModel = proc (p, lang) -> do
+        (x,y) <- (noise &&& noise) -< ()
+        returnA -< (if lang then id else negate) (p + V2 x y)
+    
+        where noise = constM (normal 0 std)
+
+type Language = Bool
+  -- particle marginal problems
+  -- rmsmc
   -- todos: movement given language (warmer, cooler)
   -- the ball is in the box. find the ball
+  -- no observations: toggle observations, control loop follows ball when variance is below threshold, print variance (do this in mutualstoch)
   -- diagram of what depends on what
+  -- proper user input
 
 -- convention:
-    -- latent state: the language :: V2 Double
+    -- latent state: the language :: Bool
 
     -- agent:: SignalFunction Stochastic (Position, Language) (Observation, Utterance :: V2 Double)
 
@@ -305,38 +401,4 @@ renderObjects col = proc Result { particles, measured, latent} -> do
 drawParticle' ::  Monad m => MSF m (Position, Log Double, Color) Picture
 drawParticle' = proc (position, probability, col) -> do
   drawBall' -< (position, 0.05, withAlpha (into @Float $ exp $ 0.2 * ln probability) col)
-
-
-
--- drawBall'' :: Monad m => MSF m (V2 Double, Double, Color) Picture
--- drawBall'' = proc (V2 x y, width, theColor) -> do
---     returnA -<
---         scale 150 150 $
---         translate (double2Float x) (double2Float y) $
---         color theColor $
---         circleSolid $
---         into @Float width
-
-
-
-
-
--- drawParticle :: Monad m => MSF m (V2 Double, Log Double) Picture
--- drawParticle = proc (position, probability) -> do
---   drawBall' -< (position, 0.05, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet)
-
-
-
--- data Result = Result
---   {
---    measured :: AgentObservation
---   , latent :: State
---   , particles :: [(State, Log Double)]
---   }
---   deriving Show
-
--- unangle' :: (Floating p, Ord p) => V2 p -> p
--- unangle' 0 = 0
--- unangle' x = unangle x
-
 

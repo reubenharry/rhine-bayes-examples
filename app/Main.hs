@@ -1,14 +1,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Main (main) where
 
 import qualified Example
 import qualified MainSF 
 -- import qualified RMSMC (gloss)
 -- import qualified TwoStreamContinuous (gloss)
-
+import qualified Concurrent
 
 main :: IO ()
-main = Example.toGlossC' MainSF.mainSF
+main = MainSF.toGloss MainSF.mainSF
 
     -- putStrLn $ "Pick an option" <>
     --     "\n0: Example" <>

@@ -51,6 +51,10 @@ import Linear (angle)
 import Data.Fixed (mod')
 import qualified Control.Category as C
 import Debug.Trace (traceM)
+import qualified Debug.Trace as D
+import Concurrent (GlossInput, noInput, keys)
+import Data.Set (toList)
+import qualified Debug.Trace as Debug
 
 -- bouncing
 
@@ -61,18 +65,18 @@ std = 1
 data State where
   State :: {_ball1Pos :: V2 Double,
             _ball2Pos :: V2 Double,
-            _userSetting :: T.Text}
+            _userSetting :: GlossInput}
            -> State
-  deriving Show
+--   deriving Show
 
 -- a simple macro, not important
 $(makeLenses ''State)
 
 
-data AgentObservation = AgentObservation {_ball1Obs :: V2 Double, _userObs :: T.Text} deriving Show
+data AgentObservation = AgentObservation {_ball1Obs :: V2 Double, _userObs :: GlossInput}
 $(makeLenses ''AgentObservation)
 
-type UserInput = T.Text
+type UserInput = GlossInput
 type AgentInput = Angle
 type Particles = [(State, Log Double)]
 type UserObservation = State
@@ -96,14 +100,14 @@ prior = movement where
 
 
     movement :: SignalFunction Stochastic AgentInput State
-    movement  = feedback (State 0 1 "") proc (Angle pos, oldState) -> do
+    movement  = feedback (State 0 1 noInput) proc (Angle pos, oldState) -> do
         ball1PosAx <- walk1D -< ()
         ball1PosAy <- walk1D -< ()
         pos' <- iPre 0 -< pos
         ball2Angle <- decayIntegral 1  -< pos'
         let ball2Vector = angle (ball2Angle `mod'` (2 * pi))
         -- arrM traceM -< show pos'
-        ballPos <- decayIntegral 1 >>> decayIntegral 1 -< V2 ball1PosAx ball1PosAy -- - ball2Vector 
+        ballPos <- decayIntegral 1 >>> decayIntegral 1 -< V2 ball1PosAx ball1PosAy - ball2Vector 
             -- (ball1PosAx +
             -- 5*(oldState ^. ball1Pos . _x - ball2PositionX  ) `savediv`
             -- norm (oldState ^. ball1Pos . _x - ball2PositionX) **2)
@@ -113,7 +117,7 @@ prior = movement where
         -- ballPosY <- decayIntegral 1  >>> decayIntegral 1 -< ball1PosAy +
         --     5*(oldState ^. ball1Pos . _y - ball2PositionY  ) `savediv`
         ball1Position <- iPre 0 -< ballPos
-        let userSetting = ""
+        let userSetting = noInput
         let out = State {
             _ball2Pos = ball1Position + ball2Vector ,
             _ball1Pos = ball1Position,
@@ -143,21 +147,21 @@ observationModel = proc state -> do
         noise = proc userInput -> do
             arrM (normal 0) -< userInput
 
-posterior :: Process (Stochastic & Unnormalized) (AgentObservation, AgentInput) State
-posterior = proc (obs, agentInput) -> do
+posterior :: SignalFunction (Stochastic & Unnormalized) (V2 Double, AgentObservation, AgentInput) State
+posterior = proc (pos, obs, agentInput) -> do
   pred <- prior -< agentInput
   observe -<
     normalPdf (pred ^. ball1Pos . _x) std (obs ^. ball1Obs . _x)
     * normalPdf (pred ^. ball1Pos . _y) std (obs ^. ball1Obs . _y)
-  arrM condition -< case obs ^. userObs of
-    "up" ->    pred ^. ball1Pos . _y  > pred ^. ball2Pos . _y
-    "down" ->  pred ^. ball1Pos . _y < pred ^. ball2Pos . _y
-    "left" ->  pred ^. ball1Pos . _x < pred ^. ball2Pos . _x
-    "right" -> pred ^. ball1Pos . _x > pred ^. ball2Pos . _x
+  arrM condition -< case obs ^. userObs . keys . to toList of
+    SpecialKey KeyUp:_ -> pred ^. ball1Pos . _y  > pos ^. _y
+    SpecialKey KeyDown:_ ->  pred ^. ball1Pos . _y  < pos ^. _y
+    SpecialKey KeyLeft:_ ->  pred ^. ball1Pos . _x  < pos ^. _x
+    SpecialKey KeyRight:_ -> pred ^. ball1Pos . _x  > pos ^. _x
     _ -> True
-  observe -< case obs ^. userObs of
-    "near center" -> normalPdf 0 0.1 (pred ^. ball1Pos . _x) * normalPdf 0 2 (pred ^. ball1Pos . _y)
-    _ -> 1
+--   observe -< case obs ^. userObs of
+--     _ -> normalPdf 0 0.1 (pred ^. ball1Pos . _x) * normalPdf 0 2 (pred ^. ball1Pos . _y)
+--     _ -> 1
   returnA -< set userSetting (obs ^. userObs) pred -- hardcode update for user input
 
 control :: SignalFunction Stochastic Particles AgentInput
@@ -181,9 +185,9 @@ control = Angle . unangle' <$> x
     withSwitch a t = proc particles -> do
         out <- a -< particles
         sampledUserInput <- arrM empirical -< first (^. userSetting) <$> particles
-        returnA -< (out, if sampledUserInput == t then Just out else Nothing )
+        returnA -< (out, if False then Just out else Nothing )
 
-main :: SignalFunction (Stochastic & Feedback) Text (AgentObservation, AgentInput)
+main :: SignalFunction (Stochastic & Feedback) GlossInput (AgentObservation, AgentInput)
 main = proc inputText -> do
     rec
 
@@ -204,39 +208,39 @@ main = proc inputText -> do
     agent :: Process (Stochastic & Feedback) AgentObservation AgentInput
     agent = proc agentObs -> do
         rec
-            particles <- particleFilter params {n = 150} posterior -< (agentObs, agentInput)
+            particles <- particleFilter params {n = 150} posterior -< (0, agentObs, agentInput)
             agentInput <- control -< particles
         returnA -< agentInput
 
 
-mainSignal :: SignalFunction (Stochastic & Feedback & InputOutput) Text (UserObservation, Particles, AgentObservation)
-mainSignal = proc inputText -> do
+mainSignal :: SignalFunction (Stochastic & Feedback & InputOutput) GlossInput (UserObservation, Particles, AgentObservation)
+mainSignal = proc event -> do
     rec
 
         (agentObs, userObs) <- system -< (agentInput, userInput)
-        (agentInput, particles) <- agent -< agentObs
-        userInput <- user -< (userObs, inputText)
+        (agentInput, particles) <- agent -< (userObs ^. ball1Pos, agentObs)
+        userInput <- user -< (userObs, event)
 
     returnA -< (userObs, particles, agentObs)
 
     where
 
-    user :: Process (Stochastic & InputOutput) (UserObservation, Text) UserInput
+    user :: Process (Stochastic & InputOutput) (UserObservation, GlossInput) UserInput
     user = proc (userObs, message) -> do
         displayState -< userObs
         returnA -< message
 
     system :: SignalFunction Stochastic (AgentInput, UserInput) (AgentObservation, UserObservation)
     system = proc (agentInput, userInput) -> do
-        previousUserInput <- iPre "" -< userInput
+        previousUserInput <- iPre noInput -< userInput
         state <- prior -< agentInput
         observation <- observationModel -< set userSetting previousUserInput state
         returnA -< (observation, state)
 
-    agent :: Process (Stochastic & Feedback) AgentObservation (AgentInput, Particles)
-    agent = proc agentObs -> do
+    agent :: Process (Stochastic & Feedback) (V2 Double, AgentObservation) (AgentInput, Particles)
+    agent = proc (pos, agentObs) -> do
         rec
-            particles <- particleFilter params {n = 150} posterior -< (agentObs, agentInput)
+            particles <- particleFilter params {n = 150} posterior -< (pos, agentObs, agentInput)
             agentInput <- control -< particles
         returnA -< (agentInput, particles)
 
@@ -246,16 +250,17 @@ displayState = returnA
 readInput :: MonadIO m => MVar T.Text -> MSF m a T.Text
 readInput mvar = constM (liftIO $ readMVar mvar)
 
-gloss :: SignalFunction (Stochastic & Feedback & InputOutput) Text Picture
+gloss :: SignalFunction (Stochastic & Feedback & InputOutput) GlossInput Picture
 gloss = proc message -> do
 
 
                     -- "set the noise level to"
-                (showParticles, showObservations) <- interpret -< message
+                -- (showParticles, showObservations) <- interpret -< message
+                let (showParticles, showObservations) = (True, True)
                 (state, particles, measured) <- mainSignal -< message
                 visualisation -< Result {
                                     particles = if showParticles then particles else []
-                                    , measured = if showObservations then measured else AgentObservation 100 ""
+                                    , measured = if showObservations then measured else AgentObservation 100 noInput
                                     , latent = state
                                     }
 
@@ -293,7 +298,6 @@ data Result = Result
   , latent :: State
   , particles :: [(State, Log Double)]
   }
-  deriving Show
 
 unangle' :: (Floating p, Ord p) => V2 p -> p
 unangle' 0 = 0
