@@ -57,7 +57,10 @@ import qualified Linear as L
 import Debug.Trace (traceM)
 import Communication (empirical)
 import Control.Monad.Bayes.Enumerator (enumerate)
-import Concurrent (GlossInput)
+import Concurrent (GlossInput, keys)
+import qualified Data.Set as S
+import Example (walk1D)
+import Data.Maybe (fromMaybe)
 
 -- bouncing
 
@@ -202,7 +205,7 @@ posterior = proc (ballAPos, ballBObs) -> do
 posteriorMaybeObs :: SignalFunction (Stochastic & Unnormalized) (Observation, Bool) Position
 posteriorMaybeObs = proc (V2 oX oY, condition) -> do
   latent@(V2 trueX trueY) <- prior -< ()
-  if condition then 
+  if condition then
     observe -< normalPdf oY std trueY * normalPdf oX std trueX
     else returnA -< ()
   returnA -< latent
@@ -224,23 +227,31 @@ mainSimple = proc inputText -> do
     returnA -< pic1 <> pic2
 
 
+
+
 main :: SignalFunction (Stochastic & Feedback) Text Picture
 main = proc inputText -> do
   rec
-    ballObs1 <- iPre 0 >>> observationModel -< ball1
-    inferred1 <- particleFilter params {n = 20} posterior -< (ball2, ballObs1)
-    expectedBall1 <- arr expected -< inferred1
-    ball2 <- iPre 0 >>> moveAwayFrom -< expectedBall1
+    ballObs1 <- (iPre 0 >>> observationModel) -< ball1
+    inferred1 <- (particleFilter params {n = 20} posterior) -< (ball2, ballObs1)
+    expectedBall1 <- (arr expected) -< inferred1
+    ball2 <- (iPre 0 >>> moveAwayFrom) -< expectedBall1
 
 
-    ballObs2 <- iPre 0 >>> observationModel -< ball2
-    inferred2 <- particleFilter params {n = 20} posterior -< (ball1, ballObs2)
-    expectedBall2 <- arr expected -< inferred2
+    ballObs2 <- (iPre 0 >>> observationModel) -< ball2
+    inferred2 <- (particleFilter params {n = 20} posterior) -< (ball1, ballObs2)
+    expectedBall2 <- (arr expected) -< inferred2
     ball1 <- moveAwayFrom -< expectedBall2
 
   pic1 <- renderObjects yellow -< Result ballObs1 ball1 inferred1
   pic2 <- renderObjects green -< Result ballObs2 ball2 inferred2
   returnA -< pic1 <> pic2
+
+
+
+
+
+
 
 mainComplex :: SignalFunction (Stochastic & Feedback) Text Picture
 mainComplex = proc inputText -> do
@@ -266,13 +277,13 @@ mainComplex = proc inputText -> do
 selfBelief :: SignalFunction (Stochastic & Feedback) Text Picture
 selfBelief = proc inputText -> do
     rec
-        ballObs <- iPre 0 >>> observationModel -< ball 
+        ballObs <- iPre 0 >>> observationModel -< ball
         inferredBall <- particleFilter params {n = 20} post -< (ballObs, ball)
         expectedBall <- arr expected -< inferredBall
         ball <- moveTowards -< expectedBall
-    
+
     pic <- renderObjects yellow -< Result ballObs ball inferredBall
-    returnA -< pic 
+    returnA -< pic
 
     where
 
@@ -285,15 +296,15 @@ selfBelief = proc inputText -> do
 
 followWhenCertain :: SignalFunction (Stochastic & InputOutput) GlossInput Picture
 followWhenCertain = proc glossInput  -> do
-    
+
     ball1 <- Example.prior -< ()
     -- (_, showObs) <- interpret -< inputText
-    let showObs = undefined -- glossInput ^. keys . contains
+    showObs <- hold mempty >>> arr (^. contains (Char 'o')) -< if S.null (glossInput ^. keys ) then Nothing else Just (glossInput ^. keys )
     -- arrM (liftIO . print) -< undefined
-    ballObs <- iPre 0 >>> observationModel -< ball1 
+    ballObs <- iPre 0 >>> observationModel -< ball1
     inferredBall <- particleFilter params {n = 100} posteriorMaybeObs -< (ballObs, showObs)
     ball2 <- moveTowardsWhenCertain -< inferredBall
-    
+
     pic <- renderObjects yellow -< Result (if showObs then ballObs else 1000) ball1 inferredBall
     pic2 <- renderObjects green -< Result 1000 ball2 []
     returnA -< pic <> pic2
@@ -311,7 +322,7 @@ followWhenCertain = proc glossInput  -> do
 convention :: SignalFunction (Stochastic & Feedback) Text Picture
 convention = proc inputText -> do
   rec
-    
+
     convention1 <- iPre [(True, 1)] >>> arrM empirical -< c1
     ballObs1 <- iPre (0, True) >>> observationModel -< (ball1, convention1)
     inferred1 <- particleFilter params {n = 100} languagePosterior -< (ball2, ballObs1)
@@ -328,26 +339,135 @@ convention = proc inputText -> do
 
   pic1 <- renderObjects yellow -< Result ballObs1 ball1 inferredBall1
   pic2 <- renderObjects green -< Result ballObs2 ball2 inferredBall2
-  returnA -< pic1 <> pic2 <> 
+  returnA -< pic1 <> pic2 <>
     translate (-300) 0 (text (show convention1)) <> translate 300 0 (text (show convention2))
 
-  where 
-    languagePosterior :: SignalFunction (Stochastic & Unnormalized) (Position, Observation) (Position, Language)
+  where
+    languagePosterior :: SignalFunction (Stochastic & Unnormalized) (Position, Observation) (Position, Bool)
     languagePosterior = proc (ballAPos, ballBObs) -> do
 
         ballB <- iPre 0 >>> moveAwayFrom -< ballAPos
         language <- performOnFirstSample (uniformD [constM $ pure True, constM $ pure False]) -< ()
         observe -< normalPdf2D ballB std ((if language then id else negate) ballBObs)
         returnA -< (ballB, language)
-        
-    observationModel :: SignalFunction Stochastic (Position, Language) Observation
+
+    observationModel :: SignalFunction Stochastic (Position, Bool) Observation
     observationModel = proc (p, lang) -> do
         (x,y) <- (noise &&& noise) -< ()
         returnA -< (if lang then id else negate) (p + V2 x y)
-    
+
         where noise = constM (normal 0 std)
 
-type Language = Bool
+
+language :: SignalFunction (Stochastic & Feedback) GlossInput Picture
+language = proc glossInput -> do
+    let communicate = glossInput ^. keys . contains (Char 'c')
+    ball <- prior -< ()
+    obs1  <- observationModel -< ball
+    obs2 <- observationModel -< ball
+    rec
+        (belief, l1, utterance) <- agent -< (if communicate then Just utterance2 else Nothing, Just obs2)
+        (belief2, l2, utterance2) <- agent -< (if communicate then Just utterance else Nothing, Just obs1)
+    pic1 <- renderObjects yellow -< Result obs1 ball belief
+    pic2 <- renderObjects green -< Result obs2 1000 belief2
+    pic3 <- renderObjects yellow -< Result l1 1000 []
+    pic4 <- renderObjects green -< Result l2 1000 []
+    -- pic3 <- renderObjects violet -< Result 1000 1000 belief3
+    returnA -< pic1 <> pic2 <> pic3 <> pic4 
+        -- <> pic5 <> pic6 -- scale 0.1 0.1 (translate (-200) (-200) (text (show (l1,l2))))
+
+--     convention1 <- iPre [(True, 1)] >>> arrM empirical -< c1
+--     ballObs1 <- iPre (0, True) >>> observationModel -< (ball1, convention1)
+--     inferred1 <- particleFilter params {n = 100} languagePosterior -< (ball2, ballObs1)
+--     let (inferredBall1, c2) = (first fst <$> inferred1, first snd <$> inferred1)
+--     expectedBall1 <- arrM empirical -< inferredBall1
+--     ball2 <- iPre 0 >>> moveAwayFrom -< expectedBall1
+
+--     convention2 <- arrM empirical -< c2
+--     ballObs2 <- iPre (0, True) >>> observationModel -< (ball2, convention2)
+--     inferred2 <- particleFilter params {n = 100} languagePosterior -< (ball1, ballObs2)
+--     let (inferredBall2, c1) = (first fst <$> inferred2, first snd <$> inferred2)
+--     expectedBall2 <- arrM empirical -< inferredBall2
+--     ball1 <- moveAwayFrom -< expectedBall2
+
+--   pic1 <- renderObjects yellow -< Result ballObs1 ball1 inferredBall1
+--   pic2 <- renderObjects green -< Result ballObs2 ball2 inferredBall2
+--   returnA -< pic1 <> pic2 <> 
+--     translate (-300) 0 (text (show convention1)) <> translate 300 0 (text (show convention2))
+
+  where
+
+    std = 0.1 :: Double
+
+    observationModel :: SignalFunction Stochastic Position Observation
+    observationModel = proc p -> do
+        (x,y) <- (noise &&& noise) -< ()
+        returnA -< p + V2 x y
+        where noise = constM (normal 0 std)
+
+    -- posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
+    -- posterior = proc (V2 oX oY) -> do
+    --     latent@(V2 trueX trueY) <- prior -< ()
+    --     observe -< normalPdf oY std trueY * normalPdf oX std trueX
+        -- returnA -< latent
+
+    posterior :: SignalFunction (Stochastic & Unnormalized)
+        (Maybe Utterance, Maybe Observation)
+        (Position, Language)
+    posterior = proc (utt, obs) -> do
+
+        latent@(V2 trueX trueY) <- prior -< ()
+        lang <- prior -< ()
+        case obs of
+            Just (V2 oX oY) -> observe -< normalPdf oY std trueY * normalPdf oX std trueX
+            Nothing -> returnA -< ()
+        meaning :: Maybe Position <- arr (\(u,l) -> fmap (`subtract` l) u) -< (utt, lang)
+        case meaning of
+            Just u -> observe -< normalPdf2D u (std*3) latent
+            Nothing -> returnA -< ()
+        returnA -< (latent, lang)
+
+    prior :: SignalFunction Stochastic () Position
+    prior = proc _ -> do
+        x <- walk1D -< ()
+        y <- walk1D -< ()
+        returnA -< V2 x y
+
+    agent :: SignalFunction Stochastic
+        (Maybe Utterance, Maybe Observation)
+        ([(Position, Log Double)], Expected Language, Utterance)
+    agent = proc (utt, obs) -> do
+        delayedUtt <- iPre Nothing -< utt
+        belief <- particleFilter params {n=50} posterior -< (delayedUtt, obs)
+        let (posbelief, langbelief) = (first fst <$> belief, first snd <$> belief)
+        pos <- arrM empirical -< posbelief
+        l <- arr expected -< langbelief
+        utt <- arr (uncurry (+)) -< (pos, l)
+        returnA -< (posbelief, l, utt)
+
+    -- agent2 :: SignalFunction Stochastic (Observation, Utterance, Language) ([(Position, Log Double)]) 
+    -- agent2 = undefined
+
+
+    -- languagePosterior :: SignalFunction (Stochastic & Unnormalized) (Position, Observation) (Position, Language)
+    -- languagePosterior = proc (ballAPos, ballBObs) -> do
+
+    --     ballB <- iPre 0 >>> moveAwayFrom -< ballAPos
+    --     language <- performOnFirstSample (uniformD [constM $ pure True, constM $ pure False]) -< ()
+    --     observe -< normalPdf2D ballB std ((if language then id else negate) ballBObs)
+    --     returnA -< (ballB, language)
+
+    -- observationModel :: SignalFunction Stochastic (Position, Language) Observation
+    -- observationModel = proc (p, lang) -> do
+    --     (x,y) <- (noise &&& noise) -< ()
+    --     returnA -< (if lang then id else negate) (p + V2 x y)
+
+    --     where noise = constM (normal 0 std)
+
+type Expected a = a
+type Utterance = Observation
+
+type Language = V2 Double
   -- particle marginal problems
   -- rmsmc
   -- todos: movement given language (warmer, cooler)

@@ -55,6 +55,7 @@ import qualified Data.Maybe as M
 data GlossInput = GlossInput
   { _mouse :: V2 Double
   , _keys  :: Set Key
+  , _events :: [Event]
   }
 
 -- Some nice lenses to go with it
@@ -71,20 +72,21 @@ ls = T.pack . M.mapMaybe \case
 
 getTextFromGloss :: Monad m => MSF m GlossInput (Maybe Text)
 getTextFromGloss = proc glossInput -> do
+    letters <- accumulateWith handle noInput  -< glossInput ^. events
     let pressed x = glossInput ^. keys . contains x
     outputText  <- iPre [] >>> accumulateWith (foldr (.) id) "" -<
-        (<> glossInput ^. keys . to (ls . toList) )
+        (<> letters ^. keys . to (ls . toList) )
             :
         [const "" | pressed  (SpecialKey KeyEnter) || pressed (Char 'q') ]
     returnA -< if pressed (SpecialKey KeyEnter) then Just outputText else Nothing
 
 
 noInput :: GlossInput
-noInput = GlossInput {_mouse = 0, _keys = mempty}
+noInput = GlossInput {_mouse = 0, _keys = mempty, _events = []}
 
 handle :: [Event] -> GlossInput -> GlossInput
 handle = foldr (.) id . fmap \case
-  (EventKey k s _ _) -> const (noInput & keys.contains k .~ (s == Down))
+  (EventKey key upOrDown _ _) -> keys.contains key .~ (upOrDown == Down)
   (EventMotion (x,y)) -> mouse .~ V2 (into @Double x) (into @Double y)
   _ -> id
 

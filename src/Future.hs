@@ -26,11 +26,12 @@
 
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Future where
 
 
-import Control.Monad.Bayes.Class ( normalPdf )
+import Control.Monad.Bayes.Class ( normalPdf, MonadSample (normal) )
 import FRP.Rhine
     ( reactimateCl,
       Arrow(arr),
@@ -40,7 +41,7 @@ import FRP.Rhine
       accumulateWith,
       withSideEffect_,
        )
-import Inference (particleFilter, observe, SignalFunction, Stochastic, type (&), Unnormalized, params, SMCSettings (n))
+import Inference (particleFilter, observe, SignalFunction, Stochastic, type (&), Unnormalized, params, SMCSettings (n), Deterministic)
 import FRP.Rhine.Gloss
     ( defaultSettings,
       launchGlossThread,
@@ -65,9 +66,8 @@ import Example
       Position,
       std,
       prior,
-      observationModel,
       posterior,
-      visualisation, drawBall', drawParticle' )
+      visualisation, drawBall', drawParticle', Observation, decayingIntegral )
 import Linear (V2(..))
 import Data.Text (Text)
 import FRP.Rhine.Gloss.Common (Picture)
@@ -75,29 +75,87 @@ import Data.Foldable (Foldable(fold))
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Control.Lens (ifoldMap)
 import Witch (into)
+import Control.Arrow ((&&&))
+import Data.MonadicStreamFunction (constM)
+import Data.MonadicStreamFunction
+import FRP.Rhine (integralFrom)
+import Text.Megaparsec.Char.Lexer (decimal, float)
+import Text.Megaparsec (MonadParsec(eof), runParser)
+import Data.Void (Void)
+import Concurrent (GlossInput, keys)
+import Graphics.Gloss.Data.Picture (text)
+import FRP.Rhine.Gloss (translate)
+import Control.Lens.Getter ((^.))
+import Control.Lens (to)
+import Data.Set (toList)
+import FRP.Rhine.Gloss (Key(SpecialKey))
+import FRP.Rhine.Gloss (SpecialKey(KeyUp))
+import FRP.Rhine.Gloss (SpecialKey(KeyDown))
+import FRP.Rhine.Gloss (Key(Char))
+import Control.Lens.At (Contains(..))
 
 -- futurePosterior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF m td Observation Position
 futurePosterior :: SignalFunction (Stochastic & Unnormalized)
-  (V2 Double)
+  (V2 Double, Double)
   Position
-futurePosterior = proc (V2 oX oY) -> do
-  latent <- prior -< ()
-  shifted@(V2 trueX trueY) <- shift 100 -< latent
-  observe -< normalPdf oY std trueY * normalPdf oX std trueX
-  returnA -< latent
+futurePosterior = proc (V2 oX oY, std) -> do
+  latent <- stochasticOscillator 0 1 &&& stochasticOscillator 0 1 -< std
+  shifted@(trueX, trueY) <- shift 100 -< latent
+  observe -< normalPdf oY 0.1 trueY * normalPdf oX 0.1 trueX
+  returnA -< uncurry V2 latent
 
 
-future, past, pastFilter, allPast :: SignalFunction Stochastic Text Picture
-future = proc _ -> do
-            actualPosition <- prior -< ()
+-- | Harmonic oscillator with white noise
+stochasticOscillator :: 
+  -- | Starting position
+  Double ->
+  -- | Starting velocity
+  Double ->
+  SignalFunction Stochastic Double Double
+stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev, position') -> do
+  impulse <- arrM (normal 0) -< stdDev
+  -- FIXME make -3 input, sample once at the beginning, or on every key stroke
+  let acceleration = (-3) * position' + impulse
+  -- Integral over roughly the last 100 seconds, dying off exponentially, as to model a small friction term
+  velocity <- arr (+ initialVelocity) <<< decayingIntegral 100 -< acceleration
+  position <- integralFrom initialPosition -< velocity
+  returnA -< (position, position)
+
+
+interpret str = either (const 0.1) id $ runParser @Void (float <* eof) "" str
+
+toggle :: Char -> Bool -> SignalFunction Deterministic GlossInput Bool 
+toggle char initialVal = proc glossInput -> do
+    accumulateWith id initialVal -< glossInput ^. keys . contains (Char char) . to \case 
+        True -> not
+        False -> id
+
+observationModel :: SignalFunction Stochastic Position Observation
+observationModel = proc p -> do
+    (x,y) <- (noise &&& noise) -< ()
+    returnA -< p + V2 x y
+    where noise = constM (normal 0 0.1)
+
+past, pastFilter, allPast :: SignalFunction Stochastic Text Picture
+future :: SignalFunction Stochastic GlossInput Picture 
+future = proc glossInput -> do
+            std <- accumulateWith id 0.1 -< glossInput ^. keys . to ((\case 
+                (SpecialKey KeyUp : _) -> (+0.1)
+                (SpecialKey KeyDown : _) -> (\x -> max (x - 0.1) 0.1)
+                _ -> id
+                ) . toList)
+
+            showMeasured <- toggle 'o' True -< glossInput
+            actualPosition <- stochasticOscillator 0 1 &&& stochasticOscillator 0 1 -< std
             thePast <- shift 100 -< actualPosition
-            measuredPosition <- observationModel -< thePast
-            samples <- particleFilter params futurePosterior -< measuredPosition
-            renderObjects -< Result {
+            measuredPosition <- observationModel -< uncurry V2 thePast
+            samples <- particleFilter params futurePosterior -< (measuredPosition, std)
+            pic <- renderObjects -< Result {
                                 particles = samples
-                                , measured = thePast
-                                , latent = actualPosition
+                                , measured = if showMeasured then measuredPosition else 100
+                                , latent = uncurry V2 actualPosition
                                 }
+            returnA -< pic <> translate 300 300 (text (show std))
 
 past = proc _ -> do
             actualPosition <- prior -< ()

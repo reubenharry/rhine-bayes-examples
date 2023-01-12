@@ -83,6 +83,7 @@ import qualified Debug.Trace as Debug
 import qualified Concurrent
 import Concurrent (GlossInput (_mouse, _keys, GlossInput), getTextFromGloss, handle, keys, noInput, mouse)
 import Debug.Trace (traceM)
+import qualified Triangular
 
 
 
@@ -108,10 +109,12 @@ toGloss sf = do
             collect -@- glossConcurrently -->
                 morphS (hoist (lift . sampleIO)) (proc events -> do
                     inputText <- (constM (liftIO (swapMVar mvar ""))) -< ()
-                    letters <- arr ((^. keys) . flip handle noInput)  -< events
+                    -- letters <- accumulateWith handle noInput  -< events
+                        -- arr ((^. keys) . flip handle noInput)  
                     gl <- accumulateWith handle noInput -< events
-                    let glossInput = GlossInput {_keys = letters, _mouse = gl ^. mouse}
-                    out <- sf -< (glossInput, inputText)
+                    -- arrM traceM -< show (gl ^. keys)
+                    -- let glossInput = GlossInput {_keys = letters, _mouse = gl ^. mouse}
+                    out <- sf -< (gl, inputText)
                     returnA -< out
                     )
                 >-> arrMCl paintAllIO
@@ -124,12 +127,12 @@ mainSF = safely loop
   where
 
   loop = forever do
-    inp <- try $ proc (glossInput, _) -> do
-        inputText <- getTextFromGloss -< glossInput
+    inp <- try $ proc (glossInput, inputText) -> do
+        -- inputText <- getTextFromGloss -< glossInput
         -- arrM (liftIO . print) -< show (glossInput ^. keys)
         -- if isJust inputText then 
         --   else returnA -< ()
-        x <- hold (Left undefined)  -< runParser (getCommand <* eof) "" <$> inputText
+        x <- hold undefined  -< runParser (getCommand <* eof) "" <$> Just inputText
         throwOn' -< (isRight x, x)
         returnA -< displayOptions
     fromMaybe (pure mempty) case inp of
@@ -153,6 +156,7 @@ mainSF = safely loop
               (getTextFromGloss >>> hold "" >>> Deterministic.main, "Deterministic", "img/deterministic.png"),
 
               (getTextFromGloss >>> hold "" >>> Example.dot, "Moving particle", "img/dot.png"),
+              (Triangular.gloss, "Triangular agent", "img/gloss.png"),
               (getTextFromGloss >>> hold "" >>> Example.gloss, "Particle tracking", "img/gloss.png"),
               (getTextFromGloss >>> hold "" >>> Example.weakPrior, "Weak prior", "img/weakPrior.png"),
               (getTextFromGloss >>> hold "" >>> Example.noObservations, "No observations", "img/noObservations.png"),
@@ -169,6 +173,7 @@ mainSF = safely loop
               (getTextFromGloss >>> hold "" >>> Future.past, "Past smoothed", "todo"),
               (getTextFromGloss >>> hold "" >>> Future.pastFilter, "Past unsmoothed", "todo"),
               (getTextFromGloss >>> hold "" >>> Future.allPast, "All past", "todo"),
+              (Future.future, "Future", "todo"),
 
               -- transform the posterior stream
               (getTextFromGloss >>> hold "" >>> Example.main, "Posterior predictive", "img/predictive.png"),
@@ -186,7 +191,7 @@ mainSF = safely loop
               (getTextFromGloss >>> hold "" >>> Pong.mainSignal, "Pong", "img/pong.png"),
               (Control.gloss, "One agent control", "img/control.png"),
 
-              (getTextFromGloss >>> hold "" >>> MutualStoch.convention, "Language", "img/control.png")
+              (MutualStoch.language, "Language", "img/control.png")
               ]
 
   displayOptions = translate (-400) 400 $ ifoldMap

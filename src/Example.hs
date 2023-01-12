@@ -152,10 +152,25 @@ walk1D = proc _ -> do
     position <- decayingIntegral 1 -< velocity
     returnA -< position
 
-  where
-    decayingIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
+  -- where
+decayingIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
 
 
+-- | Harmonic oscillator with white noise
+stochasticOscillator :: 
+  -- | Starting position
+  Double ->
+  -- | Starting velocity
+  Double ->
+  SignalFunction Stochastic Double Double
+stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev, position') -> do
+  impulse <- arrM (normal 0) -< stdDev
+  -- FIXME make -3 input, sample once at the beginning, or on every key stroke
+  let acceleration = (-3) * position' + impulse
+  -- Integral over roughly the last 100 seconds, dying off exponentially, as to model a small friction term
+  velocity <- arr (+ initialVelocity) <<< decayingIntegral 100 -< acceleration
+  position <- integralFrom initialPosition -< velocity
+  returnA -< (position, position)
 
 
 
