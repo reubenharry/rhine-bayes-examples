@@ -36,6 +36,7 @@ library
       Coordination
       Deterministic
       Example
+      FromScratch
       Future
       GlossInput
       HarderObservation

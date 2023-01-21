@@ -13,6 +13,10 @@ Both the simulation and the inference run **in real time**, so this gif is just 
 
 In this case, there are two agents (corresponding to the big yellow and green circles). Each moves stochastically, but with a bias to move away from the other. However, the catch is that each agent doesn't *know* the position of the other, so they have to infer the position from noisy observations and move away from the expectation of that inferred position.
 
+# How to run
+
+Build with `stack build`, and run with `stack exec gloss`. This will open a window with numbered options, which you can choose on the command line.
+
 # The code
 
 The code is written in a *probabilistic programming library* in the functional programming language Haskell. The model for the first example looks like this:
@@ -130,5 +134,9 @@ Monad-bayes is great at handling **distributions** in a pure and functional mann
 
 As such, it turns out that there is a beautiful synergy between approaches to modeling time (specifically real-time interactive processes) known as *reactive programming* (FRP) and probabilistic programming.
 
-More soon.
+# How to read the code
+
+The code is mostly experiments on different Bayesian filtering and smoothing simulations, so isn't always going to be super clear. `MainSF.hs` is an index of all the working examples, each of which is stored in a file in the same directory. Start with `Example.hs`.
+
+
 

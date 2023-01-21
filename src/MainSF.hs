@@ -127,12 +127,13 @@ mainSF = safely loop
   where
 
   loop = forever do
-    inp <- try $ proc (glossInput, inputText) -> do
-        -- inputText <- getTextFromGloss -< glossInput
+    inp <- try $ proc (glossInput, _) -> do
+        inputText <- getTextFromGloss -< glossInput
         -- arrM (liftIO . print) -< show (glossInput ^. keys)
         -- if isJust inputText then 
         --   else returnA -< ()
-        x <- hold undefined  -< runParser (getCommand <* eof) "" <$> Just inputText
+        arrM traceM -< show inputText
+        x <- hold (Left undefined)  -< runParser (getCommand <* eof) "" <$> inputText
         throwOn' -< (isRight x, x)
         returnA -< displayOptions
     fromMaybe (pure mempty) case inp of

@@ -32,7 +32,7 @@ import Data.Maybe (maybeToList)
 -- rhine-gloss
 import FRP.Rhine.Gloss
 import Witch (into)
-import Data.Set ( Set, toList, fromList )
+import Data.Set ( Set, toList, fromList, (\\) )
 
 import Control.Monad.Bayes.Sampler (sampleIOfixed, sampleSTfixed, SamplerST, sampleIO)
 import Control.Monad.Morph (hoist)
@@ -51,6 +51,9 @@ import Data.Text (Text)
 import Data.Set (Set)
 import Control.Lens
 import qualified Data.Maybe as M
+import qualified Data.Set as S
+import Debug.Trace (traceM)
+import qualified Debug.Trace as Debug
 
 data GlossInput = GlossInput
   { _mouse :: V2 Double
@@ -70,25 +73,52 @@ ls = T.pack . M.mapMaybe \case
   SpecialKey KeySpace -> Just ' '
   _ -> Nothing
 
-getTextFromGloss :: Monad m => MSF m GlossInput (Maybe Text)
-getTextFromGloss = proc glossInput -> do
-    letters <- accumulateWith handle noInput  -< glossInput ^. events
-    let pressed x = glossInput ^. keys . contains x
-    outputText  <- iPre [] >>> accumulateWith (foldr (.) id) "" -<
-        (<> letters ^. keys . to (ls . toList) )
-            :
-        [const "" | pressed  (SpecialKey KeyEnter) || pressed (Char 'q') ]
-    returnA -< if pressed (SpecialKey KeyEnter) then Just outputText else Nothing
+traceIt x = Debug.trace (show x) x
+
+getTextFromGloss :: Monad m => ClSF m cl GlossInput (Maybe Text)
+getTextFromGloss = safely foo
+  where
+    foo = forever $ do 
+      try proc glossInput -> do
+          chars <- getCharsFromGloss -< glossInput
+          arrM traceM -< show (glossInput ^. events) <> " Debug 4"
+          let predicateUp x = any (==True) $ map (\case (EventKey (SpecialKey KeyEnter) Up _ _) -> True; _ -> False) x
+          let predicateDown x = any (==True) $ map (\case (EventKey (SpecialKey KeyEnter) Down _ _) -> True; _ -> False) x
+          throwOn' -< (predicateUp $ glossInput ^. events, ())
+          arrM traceM -< (show $ predicateDown $ glossInput ^. events ) <> " debug"
+          returnA -< traceIt $ if predicateDown $ glossInput ^. events
+            then 
+              Just $ T.concat $ map (\case Char c -> T.singleton c; _ -> "") chars
+            else 
+              Nothing 
+      step (const $ pure (Nothing, ()))
+
+getCharsFromGloss :: Monad m => MSF m GlossInput [Key]
+getCharsFromGloss = feedback mempty proc (glossInput, oldText) -> do
+  let newLetters = (glossInput ^. keys) \\ (S.fromList oldText)
+  let newText = oldText <> S.toList newLetters
+  -- arrM traceM -< show newText <> " Debug 2"
+  -- arrM traceM -< show oldText <> " Debug 3"
+  returnA -< (newText, newText)
+
+
+    -- letters <- accumulateWith handle noInput  -< glossInput ^. events
+    -- let pressed x = glossInput ^. keys . contains x
+    -- outputText  <- iPre [] >>> accumulateWith (foldr (.) id) "" -<
+    --     (<> letters ^. keys . to (ls . toList) )
+    --         :
+    --     [const "" | pressed  (SpecialKey KeyEnter) || pressed (Char 'q') ]
+    -- returnA -< if pressed (SpecialKey KeyEnter) then Just outputText else Nothing
 
 
 noInput :: GlossInput
 noInput = GlossInput {_mouse = 0, _keys = mempty, _events = []}
 
 handle :: [Event] -> GlossInput -> GlossInput
-handle = foldr (.) id . fmap \case
-  (EventKey key upOrDown _ _) -> keys.contains key .~ (upOrDown == Down)
+handle es = (& events .~ es) . (foldr (.) id . fmap \case
+  (EventKey key upOrDown _ _) -> (keys.contains key .~ (upOrDown == Down))
   (EventMotion (x,y)) -> mouse .~ V2 (into @Double x) (into @Double y)
-  _ -> id
+  _ -> id) es
 
 
 gloss :: SignalFunction Stochastic GlossInput Picture
