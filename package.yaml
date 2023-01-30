@@ -37,6 +37,7 @@ library:
   source-dirs: src
   dependencies:
   # - representable-functors
+  - singletons
   - JuicyPixels-repa
   - repa
   - JuicyPixels

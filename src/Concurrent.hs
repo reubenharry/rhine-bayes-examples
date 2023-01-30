@@ -81,12 +81,12 @@ getTextFromGloss = safely foo
     foo = forever $ do 
       try proc glossInput -> do
           chars <- getCharsFromGloss -< glossInput
-          arrM traceM -< show (glossInput ^. events) <> " Debug 4"
+          -- arrM traceM -< show (glossInput ^. events) <> " Debug 4"
           let predicateUp x = any (==True) $ map (\case (EventKey (SpecialKey KeyEnter) Up _ _) -> True; _ -> False) x
           let predicateDown x = any (==True) $ map (\case (EventKey (SpecialKey KeyEnter) Down _ _) -> True; _ -> False) x
           throwOn' -< (predicateUp $ glossInput ^. events, ())
-          arrM traceM -< (show $ predicateDown $ glossInput ^. events ) <> " debug"
-          returnA -< traceIt $ if predicateDown $ glossInput ^. events
+          -- arrM traceM -< (show $ predicateDown $ glossInput ^. events ) <> " debug"
+          returnA -< if predicateDown $ glossInput ^. events
             then 
               Just $ T.concat $ map (\case Char c -> T.singleton c; _ -> "") chars
             else 

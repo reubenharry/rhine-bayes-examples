@@ -67,7 +67,7 @@ import Example
       std,
       prior,
       posterior,
-      visualisation, drawBall', drawParticle', Observation, decayingIntegral )
+      visualisation, drawBall', drawParticle', Observation, decayingIntegral, edgeBy, edge' )
 import Linear (V2(..))
 import Data.Text (Text)
 import FRP.Rhine.Gloss.Common (Picture)
@@ -106,7 +106,7 @@ futurePosterior = proc (V2 oX oY, std) -> do
 
 
 -- | Harmonic oscillator with white noise
-stochasticOscillator :: 
+stochasticOscillator ::
   -- | Starting position
   Double ->
   -- | Starting velocity
@@ -124,11 +124,10 @@ stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev
 
 interpret str = either (const 0.1) id $ runParser @Void (float <* eof) "" str
 
-toggle :: Char -> Bool -> SignalFunction Deterministic GlossInput Bool 
-toggle char initialVal = proc glossInput -> do
-    accumulateWith id initialVal -< glossInput ^. keys . contains (Char char) . to \case 
-        True -> not
-        False -> id
+toggle :: Char -> Bool -> SignalFunction Deterministic GlossInput Bool
+toggle char initialVal = proc gl -> do 
+    let b = gl ^. keys . contains (Char char)
+    edge' -< b
 
 observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
@@ -137,9 +136,9 @@ observationModel = proc p -> do
     where noise = constM (normal 0 0.1)
 
 past, pastFilter, allPast :: SignalFunction Stochastic Text Picture
-future :: SignalFunction Stochastic GlossInput Picture 
+future :: SignalFunction Stochastic GlossInput Picture
 future = proc glossInput -> do
-            std <- accumulateWith id 0.1 -< glossInput ^. keys . to ((\case 
+            std <- accumulateWith id 0.1 -< glossInput ^. keys . to ((\case
                 (SpecialKey KeyUp : _) -> (+0.1)
                 (SpecialKey KeyDown : _) -> (\x -> max (x - 0.1) 0.1)
                 _ -> id

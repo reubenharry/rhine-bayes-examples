@@ -47,6 +47,7 @@ import qualified Circular
 import qualified Bearing
 import qualified HarderObservation
 import qualified Switch
+import qualified Tutorial
 import Text.Megaparsec.Char.Lexer (decimal)
 
 import Data.ByteString as B hiding (foldr)
@@ -84,6 +85,9 @@ import qualified Concurrent
 import Concurrent (GlossInput (_mouse, _keys, GlossInput), getTextFromGloss, handle, keys, noInput, mouse)
 import Debug.Trace (traceM)
 import qualified Triangular
+import qualified Demo
+import qualified GUI
+import qualified Coordination
 
 
 
@@ -132,7 +136,7 @@ mainSF = safely loop
         -- arrM (liftIO . print) -< show (glossInput ^. keys)
         -- if isJust inputText then 
         --   else returnA -< ()
-        arrM traceM -< show inputText
+        -- arrM traceM -< show inputText
         x <- hold (Left undefined)  -< runParser (getCommand <* eof) "" <$> inputText
         throwOn' -< (isRight x, x)
         returnA -< displayOptions
@@ -150,49 +154,58 @@ mainSF = safely loop
     isPicture <- isJust <$> optional ":p "
     (if isPicture then Left else Right) <$> decimal
 
-  options = [
+--   options = [
+--     (Tutorial.sim, "Particle tracking", "no image")]
 
-              (constM $ pure mempty, "Definitions", "img/slide.png"),
-              (constM $ pure mempty, "Particle filter", "img/pf.png"),
-              (getTextFromGloss >>> hold "" >>> Deterministic.main, "Deterministic", "img/deterministic.png"),
+  options = [
+              (Demo.gloss, "Particle tracking", "no image"),
+
+            --   (constM $ pure mempty, "Definitions", "img/slide.png"),
+            --   (constM $ pure mempty, "Particle filter", "img/pf.png"),
+            --   (getTextFromGloss >>> hold "" >>> Deterministic.main, "Deterministic", "img/deterministic.png"),
 
               (getTextFromGloss >>> hold "" >>> Example.dot, "Moving particle", "img/dot.png"),
-              (Triangular.gloss, "Triangular agent", "img/gloss.png"),
-              (getTextFromGloss >>> hold "" >>> Example.gloss, "Particle tracking", "img/gloss.png"),
-              (getTextFromGloss >>> hold "" >>> Example.weakPrior, "Weak prior", "img/weakPrior.png"),
-              (getTextFromGloss >>> hold "" >>> Example.noObservations, "No observations", "img/noObservations.png"),
-              (getTextFromGloss >>> hold "" >>> Circular.gloss, "Pendulum", "img/circular.png"),
-              (getTextFromGloss >>> hold "" >>> Bearing.gloss, "Bearing", "img/bearing.png"),
-              (getTextFromGloss >>> hold "" >>> HarderObservation.gloss, "Acceleration observation", "img/acceleration.png"),
-              (getTextFromGloss >>> hold "" >>> BetaBern.gloss, "Beta bernoulli", "img/betabern.png"),
-              (getTextFromGloss >>> hold "" >>> Loop.gloss, "Teleportation", "todo"),
-              (getTextFromGloss >>> hold "" >>> Switch.gloss, "Hybrid system", "todo"),
+            --   (Triangular.gloss, "Triangular agent", "img/gloss.png"),
+            --   (getTextFromGloss >>> hold "" >>> Example.gloss, "Particle tracking", "img/gloss.png"),
+            --   (getTextFromGloss >>> hold "" >>> Example.weakPrior, "Weak prior", "img/weakPrior.png"),
+            --   (getTextFromGloss >>> hold "" >>> Example.noObservations, "No observations", "img/noObservations.png"),
+            --   (getTextFromGloss >>> hold "" >>> Circular.gloss, "Pendulum", "img/circular.png"),
+            --   (getTextFromGloss >>> hold "" >>> Bearing.gloss, "Bearing", "img/bearing.png"),
+            --   (getTextFromGloss >>> hold "" >>> HarderObservation.gloss, "Acceleration observation", "img/acceleration.png"),
+            --   (getTextFromGloss >>> hold "" >>> BetaBern.gloss, "Beta bernoulli", "img/betabern.png"),
+            --   (getTextFromGloss >>> hold "" >>> Loop.gloss, "Teleportation", "todo"),
+            --   (getTextFromGloss >>> hold "" >>> Switch.gloss, "Hybrid system", "todo"),
 
               -- user input
               (Concurrent.gloss, "Follow mouse", "todo"),
 
-              (getTextFromGloss >>> hold "" >>> Future.past, "Past smoothed", "todo"),
-              (getTextFromGloss >>> hold "" >>> Future.pastFilter, "Past unsmoothed", "todo"),
-              (getTextFromGloss >>> hold "" >>> Future.allPast, "All past", "todo"),
-              (Future.future, "Future", "todo"),
+            --   (getTextFromGloss >>> hold "" >>> Future.past, "Past smoothed", "todo"),
+            --   (getTextFromGloss >>> hold "" >>> Future.pastFilter, "Past unsmoothed", "todo"),
+            --   (getTextFromGloss >>> hold "" >>> Future.allPast, "All past", "todo"),
+            --   (Future.future, "Future", "todo"),
 
               -- transform the posterior stream
               (getTextFromGloss >>> hold "" >>> Example.main, "Posterior predictive", "img/predictive.png"),
 
               -- mutual recursion
-              (getTextFromGloss >>> hold "" >>> Mutual.main, "Two deterministic agents", "img/mutual.png"),
+            --   (getTextFromGloss >>> hold "" >>> Mutual.main, "Two deterministic agents", "img/mutual.png"),
               (getTextFromGloss >>> hold "" >>> MutualStoch.mainSimple, "Two stochastic agents", "img/mutualstoch.png"),
 
               -- inference in the loop
-              (getTextFromGloss >>> hold "" >>> MutualStoch.selfBelief, "Self justification", "img/mutualstoch.png"),
-              (MutualStoch.followWhenCertain, "Follow when position is known", "img/follow.png"),
-              (getTextFromGloss >>> hold "" >>> MutualStoch.main, "Two stochastic uncertain agents", "img/mutualstoch.png"),
-              (getTextFromGloss >>> hold "" >>> MutualStoch.mainComplex, "Two stochastic uncertain agents: rank 2", "img/mutualstoch.png"),
+            --   (getTextFromGloss >>> hold "" >>> MutualStoch.selfBelief, "Self justification", "img/mutualstoch.png"),
+            --   (MutualStoch.followWhenCertain, "Follow when position is known", "img/follow.png"),
+            --   (getTextFromGloss >>> hold "" >>> MutualStoch.main, "Two stochastic uncertain agents", "img/mutualstoch.png"),
+            --   (getTextFromGloss >>> hold "" >>> MutualStoch.mainComplex, "Two stochastic uncertain agents: rank 2", "img/mutualstoch.png"),
               (getTextFromGloss >>> hold "" >>> Active.mainSignal, "Choose observation", "img/active.png"),
-              (getTextFromGloss >>> hold "" >>> Pong.mainSignal, "Pong", "img/pong.png"),
-              (Control.gloss, "One agent control", "img/control.png"),
+            --   (getTextFromGloss >>> hold "" >>> Pong.mainSignal, "Pong", "img/pong.png"),
+            --   (Control.gloss, "One agent control", "img/control.png"),
 
-              (MutualStoch.language, "Language", "img/control.png")
+              (MutualStoch.language, "Language", "img/control.png"),
+              (MutualStoch.languageInf, "Infer language", "img/control.png"),
+              (MutualStoch.languageInf2, "Infer language", "img/control.png"),
+              (GUI.gui, "GUI", ""),
+              (Coordination.main, "language", "")
+            --   (Coordination.main2, "language", "")
               ]
 
   displayOptions = translate (-400) 400 $ ifoldMap

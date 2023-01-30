@@ -111,7 +111,7 @@ particleFilter config = withReaderS $ particleFilter' config
 -- particleFilterEvery x n resampler inp = (withReaderS $ (x >>> particleFilter''' n resampler inp))
 
 params :: MonadSample m => SMCSettings m
-params = SMCSettings {n = 100, resampler = resampleMultinomial}
+params = SMCSettings {n = 100, resampler = resampleSystematic}
 
 withReaderS :: (Monad m1, Monad m2) =>
   (MSF m2 (r1, a1) b1 -> MSF m1 (r2, a2) b2)

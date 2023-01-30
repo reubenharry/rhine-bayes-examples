@@ -260,6 +260,10 @@ edge = feedback 0 proc (b, prev) -> do
   oldB <- iPre True -< b
   returnA -< (prev + if oldB==b then 0 else 1, prev + if oldB==b then 0 else 1)
 
+edge' :: Monad m => MSF m Bool Bool
+edge' = feedback False proc (b, prev) -> do
+  returnA -< (prev==b, b)
+
 edgeBy :: Monad m => (a -> Bool) -> MSF m a Int
 edgeBy p = proc a -> do
   b <- arr p -< a
@@ -276,14 +280,14 @@ visualisation :: MonadIO m => Diff td ~ Double => BehaviourF (GlossConcT m) td R
 visualisation = proc Result { particles, measured, latent} -> do
 
   drawBall -< (measured, 0.05, red)
-  drawBall -< (latent, 0.3, makeColorI 255 239 0 255)
+  drawBall -< (latent, 0.15, makeColorI 255 239 0 255)
   drawParticles -< particles
 
 renderObjects ::  Monad m => MSF m Result Picture
 renderObjects = proc Result { particles, measured, latent} -> do
 
   observation <- drawBall' -< (measured, 0.05, red)
-  ball <- drawBall' -< (latent, 0.3, makeColorI 255 239 0 255)
+  ball <- drawBall' -< (latent, 0.15, makeColorI 255 239 0 255)
   parts <- fold <$> mapMSF drawParticle' -< particles
   returnA -< (observation <> ball <> parts)
 

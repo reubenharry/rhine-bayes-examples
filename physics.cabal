@@ -34,11 +34,12 @@ library
       Concurrent
       Control
       Coordination
+      Demo
       Deterministic
       Example
-      FromScratch
       Future
       GlossInput
+      GUI
       HarderObservation
       Inference
       Ising
@@ -58,6 +59,7 @@ library
       Split
       Switch
       Triangular
+      Tutorial
       TwoObjects
       TwoStream
       TwoStreamContinuous
@@ -112,6 +114,7 @@ library
     , repa
     , rhine
     , rhine-gloss
+    , singletons
     , statistics
     , text
     , transformers

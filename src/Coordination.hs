@@ -1,381 +1,400 @@
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE Rank2Types #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
-{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LiberalTypeSynonyms #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE DeriveGeneric #-}
-
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 
 module Coordination where
-import FRP.Rhine.Gloss
-    ( translate,
-      scale,
-      paintIO,
-      arrMCl,
-      reactimateCl,
-      defaultSettings,
-      launchGlossThread,
-      constM,
-      Arrow(first, arr, (&&&)),
-      Display(InWindow),
-      MonadIO(..),
-      GlossConcT,
-      GlossSettings(display),
-      returnA,
-      (>>>),
-      morphS,
-      iPre,
-      withSideEffect_,
-      average,
-      BehaviourF,
-      TimeDomain(Diff),
-      VectorSpace((*^), dot, (^+^), zeroVector),
-      blue,
-      green,
-      red,
-      violet,
-      withAlpha,
-      circleSolid,
-      color,
-      clearIO,
-      Color )
-import Prelude hiding (until)
-import qualified Example
-import qualified Control.Monad.Morph as MM
-import Linear.V2 (V2(..), _x, _y, angle, unangle)
-import Control.Monad.Bayes.Class ( MonadSample(normal), normalPdf )
-import Numeric.Log ( Log(ln) )
-import Control.Monad.Bayes.Sampler ( sampleIO )
-import Control.Monad.Morph ( MonadTrans(lift) )
-import Inference
-    ( Stochastic,
-      type (&),
-      Process,
-      Feedback,
-      Unnormalized,
-      hold,
-      particleFilter,
-      observe, SMCSettings (n), params )
-import Control.Monad.Bayes.Population (resampleMultinomial)
-import Active (averageOf)
-import Witch (into)
-import Control.Lens ( (^.), view, makeLenses )
-import Control.Monad (forever, void)
-import Data.Fixed (mod')
-import Numeric.LinearAlgebra.Static.Backprop ()
-import Numeric.Backprop ()
-import GHC.TypeLits (Nat)
+import Control.Monad.Bayes.Class (MonadSample (normal), normalPdf)
 import Data.Vector ()
-import Control.Concurrent (newMVar, forkIO, swapMVar)
+import Example (walk1D, Result (..), empirical, prior, posterior)
+import FRP.Rhine.Gloss
+    ( Arrow((&&&)), constM, returnA, green, yellow, violet )
+import GHC.TypeLits (Nat)
+import Inference
+  ( SignalFunction,
+    Stochastic,
+    type (&), SignalFunction, Feedback, SMCSettings (n), particleFilter, params, Unnormalized, observe
+  )
+import Linear.V2 (V2 (..))
+import Numeric.Backprop ()
+import Numeric.LinearAlgebra.Static.Backprop ()
+import Numeric.Log (Log (ln))
+import Prelude hiding (until)
+import Control.Lens
+import Data.MonadicStreamFunction ( iPre, arrM, feedback )
+import Control.Arrow
+import Data.Coerce (coerce)
+import Concurrent (GlossInput)
+import Graphics.Gloss (Picture)
+import MutualStoch (expected, normalPdf2D)
+import MutualStoch (renderObjects)
+import Debug.Trace (traceM)
+import Data.Singletons
+import Data.Singletons.TH ( Sing, genSingletons, Void )
 
 
--- bouncing
+data AgentNumber = One | Two
+genSingletons [''AgentNumber]
+
+type family ToOutputType (i :: AgentNumber) where
+    ToOutputType One = Bool
+    ToOutputType Two = ()
+
+foo :: Sing (i :: AgentNumber) -> ToOutputType i
+foo i = case i of
+    SOne -> True
+    STwo -> ()
 
 std :: Double
-std = 1
+std = 0.5
+
+newtype Agent1Action = Agent1Action {_agent1Action :: V2 Double} deriving Show
+$(makeLenses ''Agent1Action)
+
+newtype Agent2Action = Agent2Action {_agent2Action :: V2 Double} deriving Show
+$(makeLenses ''Agent2Action)
+
+data Observation where
+  Observation :: {_stateObs :: V2 Double, _action1Obs :: Agent1Action, _action2Obs :: Agent2Action} -> Observation
+$(makeLenses ''Observation)
 
 
-data State = State {
-    _ball1Pos :: V2 Double,
-    _ball2Pos :: V2 Double
-    } deriving Show
+
+type Population a = [(a, Log Double)]
+
+data State = State
+  { _ball :: V2 Double,
+    _actions :: (Agent1Action, Agent2Action)
+  }
+  deriving (Show)
 
 -- a simple macro, not important
 $(makeLenses ''State)
 
-newtype Angle = Angle Double deriving Show
-
-mkAngle :: Double -> Angle
-mkAngle a = Angle $ a `mod'` (2 * pi)
-
-type Observation = V2 Double
-type Agent2Action = Angle
-type Agent1Action = Angle
-type Particles = [(State, Log Double)]
-data Direction = Up | Down
-
-
--- "Process Deterministic x y" is the type of signal functions 
--- where the input signal is (Time -> x)
--- and the output signal is (Time -> y)
--- So: (Time -> x) -> (Time -> y)
--- THIS IS NOT THE SAME AS A TIME-VARYING FUNCTION!! Time -> (x -> y)
--- "Process Stochastic x y" then is (effectively): (Time -> x) -> Distribution (Time -> y)
-
-instance VectorSpace Angle Double where
-    zeroVector = Angle 0
-    Angle x ^+^ Angle y  = Angle $ x + y
-    x *^ Angle y = Angle (x * y)
-    Angle x `dot` Angle y = abs $ x - y
-
-prior :: Process Stochastic (Agent1Action, Agent2Action) State
-prior = movement where
-
-    movement  = proc (agent1Action, agent2Action) -> do
-        ball1PosVx <- walk1D -< ()
-        ball1PosVy <- walk1D -< ()
-        (Angle ball2Angle) <- iPre (Angle 1) >>> decayIntegral 1  -< agent1Action
-        let ball2Position@(V2 ball2PositionX ball2PositionY) = angle ball2Angle
-        ballPosX <- decayIntegral 1 -< ball1PosVx + (-ball2PositionX * 0.2 )
-        ballPosY <- decayIntegral 1 -< ball1PosVy + (-ball2PositionY * 0.2)
-        ball1Position <- iPre 0 -< V2 ballPosX ballPosY
-        returnA -< State {
-            _ball2Pos = ball2Position + ball1Position ,
-            _ball1Pos = ball1Position}
-
-
-
-    walk1D :: Process Stochastic () Double
-    walk1D = proc _ -> do
-        dacceleration <- constM (normal 0 8 ) -< ()
-        acceleration <- decayIntegral 1 -< dacceleration
-        velocity <- decayIntegral 1 -< acceleration -- Integral, dying off exponentially
-        returnA -< velocity
-
-    decayIntegral timeConstant =  average timeConstant >>> arr (timeConstant *^)
-
-
-observationModel :: Process Stochastic State Observation
-observationModel = proc state -> do
-    (n1, n2) <- noise &&& noise -< ()
-    returnA -< state ^. ball1Pos + V2 n1 n2
-
-    where
-        noise = constM (normal 0 1)
-
-type System = Process Stochastic (Agent1Action, Agent2Action) State
+type World = SignalFunction Stochastic (Agent1Action, Agent2Action) (State, Observation)
+type WorldFromPerspectiveOf i = SignalFunction Stochastic (ActionOf i) (State, Observation)
 
 type family ActionOf (i :: Nat) where
-    ActionOf 1 = Agent1Action
-    ActionOf 2 = Agent2Action
-
-type Agent (i :: Nat) = Process Stochastic Observation (ActionOf i)
-
-posteriorA1 :: System
-    -> Agent 2
-    -> Process (Stochastic & Unnormalized) (Observation, Agent1Action) State
-posteriorA1 system a2 = proc (obs@(V2 oX oY), agent1Action) -> do
-  agent2Action <- iPre 0 >>> a2 -< obs
-  pred <- system -< (agent1Action, agent2Action)
-  observe -< normalPdf (pred ^. ball1Pos . _x) std oX  * normalPdf (pred ^. ball1Pos . _y) std oY
-  returnA -< pred
-
-controlA1 :: Process Stochastic Particles Agent1Action
-controlA1 = proc particles -> do
-    let expectedX = V2 (averageOf (fmap (first (view _x . _ball1Pos)) particles)) (averageOf (fmap (first (view _y . _ball1Pos)) particles))
-    returnA -< Angle $ unangle' expectedX
+  ActionOf 1 = Agent1Action
+  ActionOf 2 = Agent2Action
 
 
+type Agent (i :: Nat) = SignalFunction Stochastic Observation (ActionOf i, Population State)
 
-mainSignal :: Process (Stochastic & Feedback) () (State, Particles, Observation)
-mainSignal = proc () -> do
-    rec
-        (observation, state) <- system prior -< (agent1Action, agent2Action)
-        (agent1Action, particles) <- agent1 prior -< (observation, agent1Action)
-        (agent2Action, particles2) <- agent2 prior -< observation
+movement :: SignalFunction Stochastic (Agent1Action, Agent2Action) State
+movement = proc actions -> do
+    ballX <- walk1D -< ()
+    ballY <- walk1D -< ()
+    returnA -< State
+                    { _ball = V2 ballX ballY,
+                    _actions = actions
+                    }
 
-    returnA -< (state, particles, observation)
+observationModel :: SignalFunction Stochastic State Observation
+observationModel = proc state -> do
+    (n1, n2) <- noise &&& noise -< ()
+    returnA -< Observation {
+            _stateObs = state ^. ball + V2 n1 n2,
+            _action1Obs = state ^. actions . _1,
+            _action2Obs = state ^. actions . _2
+            }
 
-    where
+noise :: SignalFunction Stochastic a Double
+noise = constM (normal 0 std)
 
-    system :: System -> Process Stochastic (Agent1Action, Agent2Action) (Observation, State)
-    system prior = proc (agent1Action, agent2Action) -> do
-        state <- prior -< (agent1Action, agent2Action)
-        observation <- observationModel -< state
-        returnA -< (observation, state)
-
-    agent1 :: System -> Process Stochastic (Observation, Agent1Action) (Agent1Action, Particles)
-    agent1 prior = proc (observation, currentagent1Action) -> do
-
-        particles <- particleFilter params {n = 150} (posteriorA1 prior (fst <$> agent2 prior)) -< (observation, currentagent1Action)
-        agent1Action <- controlA1 -< particles
-        returnA -< (agent1Action, particles)
-
-    agent2 :: System -> Process Stochastic Observation (Agent2Action, Particles)
-    agent2 = proc o -> do
-        returnA -< undefined
-
-    prior2 = undefined
-
-    -- controlA2 = undefined
+world :: World
+world = proc actions -> do
+    trueState <- movement -< actions
+    observation <- observationModel -< trueState
+    returnA -< (trueState, observation)
 
 
+-- agentIPrior :: 
+--     Sing (i :: AgentNumber) -> 
+--     WorldFromPerspectiveOf i
+-- -- WorldFromPerspectiveOf i
+-- agentIPrior agentID = proc action -> do
+--     ballX <- walk1D -< ()
+--     ballY <- walk1D -< ()
+--     returnA -<
+--         -- V2 ballX ballY 
+--         (State {_ball = V2 ballX ballY, _actions = (action, Agent2Action 0)}, undefined)
 
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ do
-            mvar <- liftIO $ newMVar ""
-            _ <- liftIO $ void $ forkIO $ forever do
-                x <- getLine
-                swapMVar mvar x
-            reactimateCl Example.glossClock proc () -> do
+agent1Prior :: 
+    -- forall (i :: Nat) .
+    WorldFromPerspectiveOf 1
+-- WorldFromPerspectiveOf i
+agent1Prior = proc action -> do
+    ballX <- walk1D -< ()
+    ballY <- walk1D -< ()
+    returnA -<
+        -- V2 ballX ballY 
+        (State {_ball = V2 ballX ballY, _actions = (action, Agent2Action 0)}, undefined)
 
-                message :: String <- constM (liftIO $ swapMVar mvar "") -< ()
-                showParticles <- hold False -< case message of
-                    "show particles" -> Just True
-                    "don't show particles" -> Just False
-                    _ -> Nothing
-                showObservations <- hold False -< case message of
-                    "show observations" -> Just True
-                    "don't show observations" -> Just False
-                    _ -> Nothing
-                -- arrMCl paintIO -< text $ show shift
-                (state, particles, measured) <- morphS (MM.hoist lift) mainSignal -< ()
-                (withSideEffect_ (lift clearIO) >>> visualisation) -< Result {
-                                    particles = if showParticles then particles else []
-                                    , measured = if showObservations then measured else 100
-                                    , latent = state
-                                    }
+agent2Prior :: 
+    -- forall (i :: Nat) .
+    WorldFromPerspectiveOf 2
+-- WorldFromPerspectiveOf i
+agent2Prior = proc action -> do
+    ballX <- walk1D -< ()
+    ballY <- walk1D -< ()
+    returnA -<
+        -- V2 ballX ballY 
+        (State {_ball = V2 ballX ballY, _actions = (Agent1Action 0, action)}, undefined)
 
-visualisation :: MonadIO m => Diff td ~ Double => BehaviourF (GlossConcT m) td Result ()
-visualisation = proc Result { particles, latent, measured} -> do
+agent2PriorComplex :: WorldFromPerspectiveOf 2
+-- WorldFromPerspectiveOf i
+agent2PriorComplex = feedback (Agent1Action 0) proc (action, a1Act) -> do
 
-  drawParticles -< first _ball1Pos <$> particles
-  drawBall -< (measured, 0.05, red)
-  drawBall -< (_ball1Pos latent, 0.1, withAlpha 0.5 green)
-  drawBall -< (_ball2Pos latent, 0.1, withAlpha 0.5 blue)
+    state <- movement -< (a1Act, action)
+    obs <- observationModel -< state
+    (newA1Act, ps) <- agent1 -< obs
+    -- ps' <- arr expected -< first (^. ball ) <$> ps
+    -- observe -< (normalPdf2D 0 0.1 ps')
+    returnA -<
+        ((state, obs), newA1Act)
 
+-- agentIPosterior :: forall (i :: Nat) . SignalFunction (Stochastic & Unnormalized) (Observation, ActionOf i) State
+-- agentIPosterior = proc (observation, agentIAction) -> do
+--     -- ballPos <- agentIPrior @i -< agentIAction
+--     (statePrediction, _) <- agentIPrior @i -< agentIAction
+--     observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
+--     -- observe -< normalPdf2D ballPos std (observation ^. stateObs)
+--     -- observe -< normalPdf2D (statePrediction ^. ball) (std*2) (observation ^. action2Obs . agent2Action)
+--     returnA -< statePrediction
 
-drawBall :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) ()
-drawBall = proc (V2 x y, width, theColor) -> do
-    arrMCl paintIO -<
-        scale 150 150 $
-        translate (into @Float x) (into @Float y) $
-        color theColor $
-        circleSolid $
-        into @Float width
+agent1Posterior :: SignalFunction (Stochastic & Unnormalized) (Observation, ActionOf 1) State
+agent1Posterior = proc (observation, agentIAction) -> do
+    -- ballPos <- agentIPrior @i -< agentIAction
+    (statePrediction, _) <- agent1Prior -< agentIAction
+    observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
+    -- observe -< normalPdf2D ballPos std (observation ^. stateObs)
+    observe -< normalPdf2D (statePrediction ^. ball) (std/2) (observation ^. action2Obs . agent2Action)
+    returnA -< statePrediction
 
-drawParticle :: MonadIO m => BehaviourF (GlossConcT m) td (V2 Double, Log Double) ()
-drawParticle = proc (position, probability) -> do
-  drawBall -< (position, 0.05, withAlpha (into @Float $ exp $ 0.2 * ln probability) violet)
+agent2Posterior :: SignalFunction (Stochastic & Unnormalized) (Observation, ActionOf 2) State
+agent2Posterior = proc (observation, agentIAction) -> do
+    -- ballPos <- agentIPrior @i -< agentIAction
+    (statePrediction, _) <- agent2Prior -< agentIAction
+    observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
+    -- observe -< normalPdf2D ballPos std (observation ^. stateObs)
+    observe -< normalPdf2D (statePrediction ^. ball) (std/2) (observation ^. action1Obs . agent1Action)
+    returnA -< statePrediction
 
-drawParticles :: MonadIO m => BehaviourF (GlossConcT m) td [(V2 Double, Log Double)] ()
-drawParticles = proc particles -> do
-  case particles of
-    [] -> returnA -< ()
-    p : ps -> do
-      drawParticle -< p
-      drawParticles -< ps
+agent2PosteriorComplex :: SignalFunction (Stochastic & Unnormalized) (Observation, ActionOf 2) State
+agent2PosteriorComplex = proc (observation, agentIAction) -> do
+    -- ballPos <- agentIPrior @i -< agentIAction
+    (statePrediction, _) <- agent2PriorComplex -< agentIAction
+    observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
+    -- observe -< normalPdf2D ballPos std (observation ^. stateObs)
+    observe -< normalPdf2D (statePrediction ^. actions . _1 . agent1Action) (std/2) (observation ^. action1Obs . agent1Action)
+    returnA -< statePrediction
 
-data Result = Result
-  {
-   measured :: Observation
-  , latent :: State
-  , particles :: [(State, Log Double)]
-  }
-  deriving Show
+decisionModelAgent2 :: SignalFunction (Stochastic & Unnormalized) State (ActionOf 2)
+decisionModelAgent2 = proc state -> do
+    action <- Agent2Action <$> Example.prior -< ()
+    (outcome, _) <- agent2Prior -< action
+    observe -< normalPdf2D (outcome ^. actions . _2 . agent2Action) 0.1 3
+    -- (state ^. actions . _2 . agent2Action)
+    returnA -< action 
 
-unangle' :: (Floating p, Ord p) => V2 p -> p
-unangle' 0 = 0
-unangle' x = unangle x
-
-
-
-
-
-
-
--- data Net = N { _nWeights1 :: L 20 1
---              , _nBias1    :: R 20
---              , _nWeights2 :: L  1  20
---              , _nBias2    :: R  1
---              }
---   deriving  Generic
---   deriving Show via Generically Net
-
-
-
--- instance Backprop Net
-
--- -- requires -XTemplateHaskell
--- makeLenses ''Net
-
--- minusNet n1 n2 = n1
---     & over nWeights1 (+ negate ((n2 ^. nWeights1)/ 100))
---     & over nWeights2 (+ negate ((n2 ^. nWeights2) / 100)) 
---     & over nBias1 (+ negate ((n2 ^. nBias1) / 100)) 
---     & over nBias2 (+ negate ((n2 ^. nBias2) / 100)) 
-
--- scaleNet (x) n2 = n2
---     & over nWeights1 ( undefined)
---     & over nWeights2 (+ (n2 ^. nWeights2)) 
---     & over nBias1 (+ (n2 ^. nBias1)) 
---     & over nBias2 (+ (n2 ^. nBias2)) 
-
--- runNet net x = z
---   where
---     -- run first layer
---     y = logistic $ (net ^^. nWeights1) #> x + (net ^^. nBias1)
---     -- run second layer
---     z = logistic $ (net ^^. nWeights2) #> y + (net ^^. nBias2)
-
--- logistic :: Floating a => a -> a
--- logistic x = 1 / (1 + exp (-x))
+agent1 :: Agent 1
+agent1 = feedback (Agent1Action 0) proc (observation, a1Act) -> do
 
 
--- squaredError target output = error `VV.dot` error
---   where
---     error = target - output
+    belief <- particleFilter params {n=10} agent1Posterior -< (observation, a1Act)
+    nextA1Act <- arr (Agent1Action . expected) -< first (^. ball ) <$> belief
+    
+    -- let nextA1Act = Agent1Action 1
+    returnA -<  ((nextA1Act, belief), nextA1Act)
 
--- netError target input net = squaredError (auto target)
---                                          (runNet net (auto input))
 
--- input = 0
--- output =  0
+agent2 :: Agent 2
+agent2 = feedback (Agent2Action 0) proc (observation, a2Act) -> do
 
--- bar = evalBP (netError output input) net 
 
--- baz = gradBP (netError output input) net
+    belief <- particleFilter params {n=10} agent2Posterior -< (observation, a2Act)
+    -- nextA2Act <- arr (Agent2Action . expected) -< first (^. ball ) <$> belief
+    belief' <- arrM empirical -< belief 
+    action <- particleFilter params{n=10} decisionModelAgent2 -< belief'
+    nextA2Act <- arr (Agent2Action . expected) -< first (^. agent2Action) <$> action 
+    returnA -<  ((nextA2Act, belief), nextA2Act)
+
+agent2Complex :: Agent 2
+agent2Complex = feedback (Agent2Action 0) proc (observation, a2Act) -> do
+
+
+    belief <- particleFilter params {n=10} agent2PosteriorComplex -< (observation, a2Act)
+    nextA2Act <- arr (Agent2Action . expected) -< first (^. ball ) <$> belief
+    returnA -<  ((nextA2Act, belief), nextA2Act)
 
 
 
--- net = (N {} 
---     & set nWeights1 0 
---     & set nWeights2 0 
---     & set nBias1 0 
---     & set nBias2 0 
---     )
-
--- -- trainStep
--- --       :: forall i h1 h2 o. (KnownNat i, KnownNat h1, KnownNat h2, KnownNat o)
--- --       => Double             -- ^ learning rate
--- --       -> R i                -- ^ input
--- --       -> R o                -- ^ target
--- --       -> Net   -- ^ initial Net
--- --       -> Net 
--- trainStep r !x !targ !n = n `minusNet` gradBP (netError x targ) n
-
--- -- > trainList
--- -- >     :: (KnownNat i, KnownNat h1, KnownNat h2, KnownNat o)
--- -- >     => Double             -- ^ learning rate
--- -- >     -> [(R i, R o)]       -- ^ input and target pairs
--- -- >     -> Network i h1 h2 o  -- ^ initial network
--- -- >     -> Network i h1 h2 o
--- trainList r = flip $ foldl' (\n (x,y) -> trainStep r x y n)
-
--- m = sampleIO do
---     dat <- Control.Monad.replicateM 50 $ (\x -> (fromDouble x :: R 1 , fromDouble (sin x) :: R 1 )) <$> normal 0 1
---     let trainedNet = (Prelude.iterate (trainList 0 dat) net) !! 30
---     -- liftIO $ print 1
---     inp <- normal 0 1
---     liftIO $ print $  evalBP (netError (fromDouble $ sin inp) (fromDouble inp)) ( net)
---     liftIO $ print $  evalBP (netError (fromDouble $ sin inp) (fromDouble inp)) ( trainedNet)
---     -- print $ netError trainedNet
 
 
--- fromDouble x = A.fromList [x]
+main :: SignalFunction Stochastic GlossInput Picture
+main = feedback (Agent1Action 0, Agent2Action 0) proc (glossInput, (a1act, a2act)) -> do
+
+
+
+    -- (prev1, prev2) <- iPre (Agent1Action 0, Agent2Action 0) -< (a1act, a2act)
+    (trueState, trueObservation) <- world -< (a1act, a2act)
+
+    (a2actNew, beliefAgent2) <- agent2 -< trueObservation
+    (a1actNew, beliefAgent1) <- agent1 -< trueObservation
+
+
+    pic1 <- renderObjects violet -< Result {
+        measured = trueObservation ^. stateObs,
+        latent = trueState ^. ball,
+        particles = []
+        }
+
+    pic2 <- renderObjects green -< Result {
+        measured = 1000,
+        latent = a1actNew ^.  agent1Action,
+        particles =  first (^. ball) <$>  beliefAgent1
+        }
+
+    pic3 <- renderObjects yellow -< Result {
+        measured = 1000,
+        latent = a2actNew ^. agent2Action,
+        particles =  first (^. ball) <$> beliefAgent2
+        }
+
+    returnA -< (pic1
+        <> pic2 <> pic3, (a1actNew, a2actNew))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- agent2ActionModel :: SignalFunction Stochastic ( V2 Double) Agent2Action
+-- agent2ActionModel = arr Agent2Action
+
+
+
+-- main2 :: SignalFunction (Stochastic & Feedback) GlossInput Picture
+-- main2 = proc glossInput -> do
+--     rec
+--         prevObs <- iPre 0 -< observation
+--         (trueAction, action) <- agent -< prevObs
+--         observation <- world -< action
+--     renderObjects green -< Result {measured = trueAction, latent = action, particles = []}
+
+--     where
+
+--         world :: SignalFunction Stochastic (V2 Double) (V2 Double)
+--         world = proc action -> do
+--             p <- Example.prior -< ()
+--             returnA -< p + action
+
+
+--         posterior :: SignalFunction (Stochastic & Unnormalized) (V2 Double) (V2 Double)
+--         posterior = proc obs -> do
+--             possibleAction <- Example.prior -< ()
+--             possibleObservation <- world -< possibleAction
+--             observe -< normalPdf2D possibleObservation 0.01 obs
+--             returnA -< possibleAction
+
+--         agent :: SignalFunction Stochastic (V2 Double) (V2 Double, V2 Double)
+--         agent = proc obs -> do
+
+--             let trueAction = 0
+--             belief <- particleFilter params posterior -< obs
+
+--             action <- arr expected -< belief
+
+
+
+
+--             returnA -< (trueAction, action )
+
+
+
+
+
+
+-- agent2PriorComplex :: SignalFunction Stochastic Agent2Action State
+-- agent2PriorComplex = proc agent2Action -> do
+--     _ <- complexWorld -< undefined
+--     returnA -< undefined
+-- agent2PosteriorComplex :: SignalFunction (Stochastic & Unnormalized) (Observation, Agent2Action) State
+-- agent2PosteriorComplex = proc (observation, agent2action) -> do
+--     latent <- complexWorld -< agent2action
+--     observe -< normalPdf2D (latent ^. ball) std (observation ^. stateObs)
+--     observe -< normalPdf2D (latent ^. actions . _1 . agent1Action) (std/10) (observation ^. action1Obs . agent1Action)
+--     returnA -< latent
+
+-- agent2ActionModel :: SignalFunction Stochastic (Population (V2 Double), Agent2Action) (Agent2Action, Population (V2 Double))
+-- agent2ActionModel = (\x -> (Agent2Action . expected . fmap (first fst) $ x, fmap (first snd) x)) <$> particleFilter params proc (population, prevAgent2Action) -> do
+--     myBelief@(V2 x y) <- arrM empirical -< population
+--     (obsX, obsY) <- constM (normal 0 std ) *** constM (normal 0 std) -< (x ,y)
+--     agent2act <- Example.prior -< ()
+--     -- let putativeState = State {_ball = myBelief, _actions = (undefined, Agent2Action agent2act)}
+--     post <- agent1Posterior -< (Observation {_stateObs = V2 obsX obsY, _action1Obs = undefined, _action2Obs = prevAgent2Action}, undefined)
+--     observe -< normalPdf2D post std myBelief
+--     returnA -< (agent2act, post)
+
+-- agent2ActionModel :: SignalFunction (Stochastic & Feedback) (Population (V2 Double), Agent2Action) (Agent2Action)
+-- agent2ActionModel = proc (population, prevAgent2Action) -> do
+--     agent2act <- Example.prior -< ()
+--     (Agent1Action a, _) <- agent1 -< undefined
+--     belief <- arr expected -< population 
+--     returnA -< undefined
+
+-- agent2Complex :: Agent 2
+-- agent2Complex = proc observation -> do
+
+--     rec
+--         prevAgent2Action <- iPre (Agent2Action 0) -< agent2Action
+--         obs <- particleFilter params  agent2PosteriorComplex -< (undefined, prevAgent2Action)
+--         -- agent2Actions <- particleFilter params {n=50} (agent2Posterior >>> agent2ActionModel) -< (observation, prevAgent2Action)
+--         -- -- (agent2Action, guessedPost) <- agent2ActionModel -< (belief, prevAgent2Action) -- first (^. ball ) <$> belief
+--         -- (agent2Action) <- arr (Agent2Action . expected) -< (first (_agent2Action) <$> agent2Actions) -- first (^. ball ) <$> belief
+--         (agent2Action) <- undefined -< (undefined) -- first (^. ball ) <$> belief
+--     returnA -< undefined
+
+
+-- agent :: Sing (i :: Nat) -> Agent i
+-- agent = undefined 
+
+-- complexWorld ::  SignalFunction (Stochastic) Agent2Action State
+-- complexWorld = feedback undefined proc (a2act, a1act) -> do
+
+
+--     (prev1, prev2) <- iPre (Agent1Action 0, Agent2Action 0) -< (a1act, a2act)
+--     trueState <- movement -< (prev1 , prev2)
+--     trueObservation <- observationModel -< trueState
+
+--     -- (a2act, beliefAgent2) <- agent2Simple -< trueObservation
+--     (a1actNew, beliefAgent1) <- agent1 -< trueObservation
+--     returnA -< (trueState, a1actNew)
+
