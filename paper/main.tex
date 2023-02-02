@@ -1,0 +1,138 @@
+## Probabilistic programming
+
+paper
+  provides a purely functional approach to probabilistic programming. Central to it is fact that distributions form a monad.
+
+Supposing that `Distribution a` represents the type of distributions over values of type `a`, this fact immediately allows us to write code like the following, where the probability monad is responsible for handling the forward propagation of probability:
+
+```haskell
+example :: Distribution (Double, Bool)
+example = do
+    x <- distribution1 :: Distribution Double
+    y <- distribution2 x :: Distribution Bool
+    return (x,y)
+```
+
+Monad-Bayes builds on top of this idea, by identifying multiple ways to represent the type of distributions, and abstracting these into a typeclass. These representations include a sampler, a weighted sampler, a numerical integrator, and several others.
+
+More precisely, there are two typeclasses, one for normalized distributions (called `MonadSample`), and one for unnormalized distributions (called `MonadInfer`) as one might obtain from adding factors to a probabilistic graphical model, or describing a posterior distribution.
+
+Standard Bayesian inference procedures can be represented by measure preserving transforms inside and between these representations of distributions. Supported inference methods include SMC, (traced) MCMC, and combinations of the two. 
+
+As an example, a simple inference method is weighted sampling. This converts a probabilistic program of type `program :: MonadInfer m => m X` which is an *unnormalized* distribution over values of some type `X`, to `weighted program :: MonadSample m => m [(X, Double)]` which is a *normalized* distribution over pairs of values of type `X` and their probabilities. One can then sample from this resulting distribution. 
+
+Monad-Bayes' approach has two great benefits. First, it is a first class library in Haskell, rather than an embedded language. As such, any Haskell code, from any library whatsoever, can be used in the construction of a probabilistic program, a property which is rarely true of PPLs. As an example, figure todo shows code which generates a distribution over histograms directly.
+
+Secondly, complex inference methods are built compositionally from simple pieces in a manner that is correct by construction. This enables simple and correct implementations of things like *resample move sequential Monte Carlo*.
+## Functional Reactive Programming (FRP)
+
+A typical problem that motivates FRP is to implement an interactive system, such as a GUI. In a GUI, we have things like checkboxes (figure todo), which whenever clicked, change appearance.
+
+One could implement this with callbacks, but this approach often scales poorly.
+
+An alternative, more mathematically transparent approach, is to model the appereance of the checkbox as a time varying value, i.e. a function from time values to its state at that time. As in electrical engineering, we refer to this as a signal.
+
+The crucial insight of FRP is to make this signal a *causal function* of another signal representing the (time varying) input. To be causal means the current value of the output signal depends only on the previous values of the input signal.
+
+We use the library `dunai`, which represents signals as:
+
+```haskell
+data SF m a b = SF (a -> m (b, SF))
+```
+
+This turns out to be sufficient to represent any causal signal function.
+
+Crucially, `m` can be chosen to be `Reader Time` (or `ReaderT Time m`), so that the value of each subsequent step is a function of the time passed since the previous step. In this way, continuous time can be represented.
+
+
+
+
+
+then the unit of time must be arbitrary, which we can understand to mean that the signal function is continuous.
+
+`SF`s can be composed 
+    first, second
+All this amounts to saying that `SF`s are *arrows*, which are described by the *Arrow* typeclass in Haskell, and have their *arrow notation* (analogous to the monad typeclass's *do-notation*) to simplify the construction and composition of complex arrows.
+
+This allows us to write code like this:
+
+arrow example
+
+
+
+## Combining reactive and probabilistic programming
+
+Probabilistic programming with `monad-bayes` centers on the observation that distributions form a monad. Meanwhile, reactive programming with `dunai` centers on the concept of a signal function that is parametrized by a monad `m`.
+
+If we set this monad to be a distribution monad, we arrive directly to a representation of stochastic processes:
+
+```haskell
+type StochasticProcess a b = forall m. MonadSample m => SF m a b
+```
+
+More precisely, a stochastic process with values of type `a` would correspond to the type `StochasticProcess () a`, in other words, the output of a function from the trivial stochastic process to
+
+simple example
+
+A more interesting example is
+
+integration example
+
+Here, we take the integral of the stochastic process, which results in a smoother
+
+### Real-time Bayesian modeling
+
+Suppose that `blah` 
+    above is passed through a noise function, to obtain:
+
+```haskell
+noise
+```
+
+A natural task is to infer the true position of the data from the noisy observations.
+
+In a non-reactive setting, Bayesian inference 
+    a prior distribution over the latent variable `prior :: Distribution z` 
+    a generative model, which stochastically generates observations given a fixed value of z: `observationModel :: z -> Distribution o`
+
+and defines a posterior using Bayes' rule, which is a function from observations to `posterior :: [o] -> Distribution z`
+
+In the reactive setting, this admits the following generalization. Given:
+
+- a prior *process* over the latent variable: `prior :: StochasticProcess () z`
+- and a function from this process to a stochastic process over observations: `observationModel :: StochasticProcess z o`
+
+we can define `posterior :: StochasticProcess o z`
+
+definition 
+
+The posterior takes a stream of observations (itself a stochastic process) and returns a stochastic process that describes the inferred position of the dot over time.
+
+It's important to note that this is substantially more general than just performing Bayesian inference at each step in time separately, because the inferred position of the dot at time t may depend not just on the current observation, but on the inferred position of the dot at all previous times, and hence on all previous observations.
+
+To put it another way, if `observations :: StochasticProcess () o` is our stream of inputs, then `observations >>> posterior` is the best possible guess about the position of the dot, given the prior and those observations.
+
+### Inference
+
+In the non-reactive setting, while we can define a posterior as a program
+    to sample from it (or extract any other information from it), we need to perform inference. 
+
+In Monad-Bayes, this amounts to choosing an appropriate representation of the probability monad and performing operations on it. The same is true in the reactive setting.
+
+In particular, we can define a real-time version of Sequential Monte Carlo (aka particle filtering) which has type:
+
+```haskell
+particleFilter :: MonadSample m => Int ->
+  -> SF (Population m) a b
+  -> SF m a [(b, Log Double)]
+```
+
+For instance, `posterior` as defined above is of the form `MSF (Population m) a b` (because `Population m` is an instance of `MonadInfer`). So we can write
+
+```haskell
+inferredPosterior = particleFilter 100 posterior :: MonadSample m => SF m a [(Position, Log Double)] 
+```
+
+`observations >>> inferredPosterior` is still a stochastic process, but at a given time point, its value is a set of 100 "particles", each a possible value of type `Position`. This is precisely a particle filter.
+
+All that remains is to run `observations >>> inferredPosterior`. Since it is stochastic, running it will be different each time (as we'd expect), but a given run will give us a population of guesses of the posterior that updates in real-time.

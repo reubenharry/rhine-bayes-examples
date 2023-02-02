@@ -1,0 +1,93 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           real-time-inference
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/real-time-inference#readme>
+homepage:       https://github.com/githubuser/real-time-inference#readme
+bug-reports:    https://github.com/githubuser/real-time-inference/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2022 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/real-time-inference
+
+library
+  exposed-modules:
+      Concurrent
+      Demo
+      Deterministic
+      Example
+      GUI
+      Inference
+      MainSF
+      Smoothing
+      Switch
+      Tutorial
+      Util
+  other-modules:
+      Paths_real_time_inference
+  hs-source-dirs:
+      src
+  default-extensions:
+      RankNTypes
+      Arrows
+      ScopedTypeVariables
+      TypeFamilies
+      FlexibleContexts
+      NamedFieldPuns
+      PatternSynonyms
+      LiberalTypeSynonyms
+      DataKinds
+      BlockArguments
+      FlexibleInstances
+      MultiParamTypeClasses
+      ConstraintKinds
+      KindSignatures
+      LambdaCase
+      OverloadedStrings
+      TypeApplications
+      TypeOperators
+  ghc-options: -Wall -Wcompat
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , dunai
+    , gloss
+    , lens
+    , linear
+    , log-domain
+    , megaparsec
+    , mmorph
+    , monad-bayes
+    , rhine
+    , rhine-gloss
+    , text
+    , transformers
+    , vector
+    , witch
+  default-language: Haskell2010
+
+executable demo
+  main-is: Main.hs
+  other-modules:
+      Paths_real_time_inference
+  hs-source-dirs:
+      app
+  ghc-options: -Wall -Wcompat -O2
+  build-depends:
+      base >=4.7 && <5
+    , real-time-inference
+  default-language: Haskell2010
