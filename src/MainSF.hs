@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
 
 module MainSF where
 
@@ -15,7 +16,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Void (Void)
-import FRP.Rhine.Gloss hiding (Down, Up)
+import FRP.Rhine.Gloss hiding (loop, Down, Up)
 import Text.Megaparsec (MonadParsec (eof), Parsec, runParser)
 import Text.Megaparsec.Char.Lexer (decimal)
 import Witch (into)
@@ -68,7 +69,7 @@ mainSF options = safely loop
         returnA -< displayOptions
       fromMaybe (pure mempty) case inp of
         Right (Right i) -> withQuitting <$> options ^? ix i . _1
-        Right (Left i) -> error ""
+        Right (Left _) -> error ""
         Left _ -> Nothing
 
     getCommand :: Parsec Void Text (Either Int Int)
@@ -82,7 +83,7 @@ mainSF options = safely loop
           (\i str -> translate 0 (-30 * fromIntegral i) $ scale 0.2 0.2 $ text (show i <> ": " <> str))
           $ options ^.. traverse . _2
 
-    withQuitting sf = try proc (userInput, t) -> do
+    withQuitting sf = try proc (userInput, _) -> do
       out <- morphS (hoist lift) sf -< userInput
       throwOn' -< (userInput ^. keys . contains (Char 'q'), text "")
       returnA -< out

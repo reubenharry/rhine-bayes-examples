@@ -8,8 +8,8 @@
 # A snapshot resolver dictates the compiler version and the set of packages
 # to be used for project dependencies. For example:
 #
-resolver: lts-18.23
-# resolver: nightly-2015-09-21
+# resolver: lts-20.9
+resolver: nightly-2023-02-03
 # resolver: ghc-7.10.2
 #
 # The location of a snapshot can be provided as a file or url. Stack assumes
@@ -42,37 +42,16 @@ packages:
 #
 extra-deps:
 
-
-# - representable-functors-3.2.0.2@sha256:f15e598ca712171408d919803a48dcf786c94e9596a65336a3d66d0886ca60c5,1877
-# - comonad-transformers-3.1@sha256:6641d4d5466a1e5e5b3863654d1df224c0980c332cf648b17ff148312bcf3f3b,1372
-# - comonads-fd-3.0.3@sha256:7fd04f220367fe8c0cd2b8c35ca15bc77a7d93a3d45f276435a094f9bdb44a60,1376
 - monad-bayes-0.1.1.0@sha256:57d96f530a37a1c8efed0830c7f2bcf86da05d0d53324aebdd5b5aa165d72829,5132
-- repa-3.4.1.5@sha256:4d94845e66d668345130f75f5de8f7c69139b91495c8c4b5a825014e8985e2fd,3562
-- rhine-0.7.0@sha256:30acf6be74a39e6c24147fcaefc3941ada28f49c015024d4474af713f4695c04,3752
-- hamilton-0.1.0.3@sha256:fc95e1caa612e3f1e22c28878489f9efedada32e87158c709be1463579298921,1726
-# Override default flag values for local packages and extra-deps
-# flags: {}
+- rhine-0.8.0.1@sha256:84f8c0bed45b57d3796aa4c7d66f764d7594fac0dc2465c6e6f1993f97295231,3850
+- rhine-gloss-0.8.0.1@sha256:c3ec549f7fbd53942374c5802658a69afe92486a803ee375fd64ad20f1fd9667,1847
 
-- JuicyPixels-repa-0.7.1.0@sha256:ffbebd96efbf6af83eb14ee9c89259acf5a9a7d504644f2a35577bd66406ae69,898
+# - monad-bayes-0.1.1.0@sha256:57d96f530a37a1c8efed0830c7f2bcf86da05d0d53324aebdd5b5aa165d72829,5132
+# - rhine-0.8.0.1@sha256:84f8c0bed45b57d3796aa4c7d66f764d7594fac0dc2465c6e6f1993f97295231,3850
+# - rhine-gloss-0.8.0.1@sha256:c3ec549f7fbd53942374c5802658a69afe92486a803ee375fd64ad20f1fd9667,1847
 
-# Extra package databases containing global packages
-# extra-package-dbs: []
-
-# Control whether we use the GHC we find on the path
-# system-ghc: true
-#
-# Require a specific version of stack, using version ranges
-# require-stack-version: -any # Default
-# require-stack-version: ">=2.7"
-#
-# Override the architecture used by stack, especially useful on Windows
-# arch: i386
-# arch: x86_64
-#
-# Extra directories used by stack for building
-# extra-include-dirs: [/path/to/dir]
-# extra-lib-dirs: [/path/to/dir]
-#
-# Allow a newer minor version of GHC than the snapshot specifies
-# compiler-check: newer-minor
+# - monad-bayes-0.1.1.0@sha256:57d96f530a37a1c8efed0830c7f2bcf86da05d0d53324aebdd5b5aa165d72829,5132
+# - repa-3.4.1.5@sha256:4d94845e66d668345130f75f5de8f7c69139b91495c8c4b5a825014e8985e2fd,3562
+# - rhine-0.7.0@sha256:30acf6be74a39e6c24147fcaefc3941ada28f49c015024d4474af713f4695c04,3752
+# - hamilton-0.1.0.3@sha256:fc95e1caa612e3f1e22c28878489f9efedada32e87158c709be1463579298921,1726
 allow-newer: true

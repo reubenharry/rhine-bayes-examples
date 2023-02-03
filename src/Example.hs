@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module Example where
 
 import Concurrent (UserInput)
@@ -92,6 +93,9 @@ walk1D = proc _ -> do
   position <- decayingIntegral 1 -< velocity
   returnA -< position
 
+
+decayingIntegral :: (Monad m, VectorSpace c (Diff (Time cl))) => 
+  Diff (Time cl) -> ClSF m cl c c
 decayingIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
 
 -- | Harmonic oscillator with white noise
@@ -225,7 +229,7 @@ data Result = Result
   deriving (Show)
 
 moveAwayFrom :: SignalFunction Stochastic Position Position
-moveAwayFrom = feedback 0 proc (otherBall, prevPos@(V2 prevPosX prevPosY)) -> do
+moveAwayFrom = feedback 0 proc (otherBall, prevPos) -> do
   dacceleration <- constM (normal 0 8) &&& constM (normal 0 8) -< ()
   acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
   let repulsion =
@@ -237,8 +241,9 @@ moveAwayFrom = feedback 0 proc (otherBall, prevPos@(V2 prevPosX prevPosY)) -> do
 
   returnA -< (position, position)
 
-drawTriangle (V2 p1 p2, dir, size, color) =
-  Color color $
+drawTriangle :: (V2 Double, Double, Float, Color) -> Picture
+drawTriangle (V2 p1 p2, dir, size, col) =
+  Color col $
     scale 50 50 $
       translate (into @Float p1) (into @Float p2) $
         rotate (- (360 / (2 * pi)) * into @Float dir) $

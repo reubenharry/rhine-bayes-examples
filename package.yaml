@@ -64,6 +64,7 @@ library:
     - OverloadedStrings
     - TypeApplications
     - TypeOperators
+  default-language: GHC2021
 
 
 executables:

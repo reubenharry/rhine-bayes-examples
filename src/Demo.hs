@@ -7,9 +7,8 @@ import Control.Monad.Bayes.Class
 import Control.Monad.Trans.MSF (MSFExcept)
 import Control.Monad.Trans.MSF.Reader (ReaderT)
 import Inference
-import qualified Example
-import FRP.Rhine
-import FRP.Rhine.Gloss
+import FRP.Rhine hiding (loop)
+import FRP.Rhine.Gloss hiding (loop)
 import Smoothing (prior)
 import GHC.Float
 import GUI
@@ -24,9 +23,8 @@ import Linear.Metric (Metric (..))
 import Linear.V2 (V2 (..))
 import Numeric.Log
 import Witch (into)
-import Prelude hiding (Real, (.))
-import Example (Result(..), moveAwayFrom, drawTriangle)
-import Example (renderObjects)
+import Prelude hiding (lines, Real, (.))
+import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy)
 import Util
 
 type Real = Double
@@ -48,17 +46,17 @@ groundTruth =
     signals 4 = moveWithArrows
     signals 5 = moveInLines
     signals 6 = gravity
-    signals _ = moveWithArrows
+    signals _ = gravity
 
--- p :: SignalFunction Stochastic UserInput Position
 
-oscillator :: Position -> SignalFunction Stochastic a Position
-oscillator v@(V2 x y) = fmap (+ V2 x (y -2)) proc _ -> do
+-- Using the slightly less user friendly version of the types here, for technical reasons
+oscillator :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
+oscillator (V2 x y) = fmap (+ V2 x (y -2)) proc _ -> do
   xAxis <- Example.stochasticOscillator 0 2 -< 1
   yAxis <- Example.stochasticOscillator 2 0 -< 1
   returnA -< V2 xAxis yAxis
 
-moveWithArrows :: V2 Double -> SignalFunction Deterministic UserInput (V2 Double)
+moveWithArrows :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)
 moveWithArrows pos = proc userInput -> do
   let velD = if userInput ^. keys . contains (Char 'd') then V2 1 0 else 0
   let velA = if userInput ^. keys . contains (Char 'a') then V2 (-1) 0 else 0
@@ -66,12 +64,9 @@ moveWithArrows pos = proc userInput -> do
   let velS = if userInput ^. keys . contains (Char 's') then V2 0 (-1) else 0
   fmap (+ pos) integral -< velD + velA + velW + velS
 
-moveInLines :: V2 Double -> SignalFunction Stochastic a (V2 Double)
+moveInLines :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
 moveInLines v = fmap (+ v) (safely lines)
   where
-    -- line :: V2 Double -> SignalFunction Deterministic () (V2 Double)
-    -- line dir@(V2 b1 b2) = proc _ -> do
-    --   integral -< dir
 
     lines :: (Double ~ Time cl, Stochastic m) => MSFExcept (ReaderT (TimeInfo cl) m) a (V2 Double) b
     lines = loop 0
@@ -79,27 +74,28 @@ moveInLines v = fmap (+ v) (safely lines)
         loop i = do
           xB <- once $ const $ bernoulli 0.5
           yB <- once $ const $ bernoulli 0.5
-          point <- try $ line i (V2 (if xB then 1 else (-1)) (if yB then 1 else (-1)))
+          point <- try $ straightLine i (V2 (if xB then 1 else (-1)) (if yB then 1 else (-1)))
           loop point
 
-    line :: (Double ~ Time cl, Monad m) => V2 Double -> V2 Double -> ClSF (ExceptT (V2 Double) m) cl a (V2 Double)
-    line p dir = proc _ -> do
+    straightLine :: (Double ~ Time cl, Monad m) => V2 Double -> V2 Double -> ClSF (ExceptT (V2 Double) m) cl a (V2 Double)
+    straightLine p dir = proc _ -> do
       t <- sinceStart -< ()
       l <- arr (+ p) . integral  -< dir
       throwOn' -< (t > 1, l)
       returnA -< l
 
-gravity :: V2 Double -> SignalFunction Stochastic a (V2 Double)
+-- gravity :: V2 Double -> SignalFunction Stochastic a (V2 Double)
+gravity :: (Monad m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
 gravity v =
   fmap
-    ((& _y %~ max 0) . (+ v))
+    ((_y %~ max 0) . (+ v))
     ( proc _ -> do
         vel <- integral -< V2 0 (-1)
         pos <- integral -< vel
         returnA -< pos
     )
 
-weakPrior :: SignalFunction Stochastic a Position
+weakPrior :: SignalFunction Stochastic UserInput Position
 weakPrior = proc _ -> do
   (trueX, trueY) <- randomPosition &&& randomPosition -< ()
   returnA -< V2 trueX trueY
@@ -179,8 +175,8 @@ occlusionObsModel = arr \(barWidth, (agentPos, pos)) -> if abs pos < barWidth / 
 occlusionPosterior :: SignalFunction (Stochastic & Unnormalized) (Double, Double, Maybe Double) Double
 occlusionPosterior = proc (agentPos, barWidth, obs) -> do
   latent <- occlusionPrior -< ()
-  pred <- occlusionObsModel -< (barWidth, (agentPos, latent))
-  case (obs, pred) of
+  predicted <- occlusionObsModel -< (barWidth, (agentPos, latent))
+  case (obs, predicted) of
     (Just o, Just o') -> observe -< normalPdf o 0.1 o'
     (a, b) -> arrM condition -< a == b
   returnA -< latent
@@ -244,7 +240,7 @@ fullLoopObservationPosterior = proc (ang, (_, obs)) -> do
   returnA -< latent
 
 fullLoopDemo :: SignalFunction Stochastic UserInput Picture
-fullLoopDemo = feedback ((0, 0), Angle 0) proc (userInput, (observation, action)) -> do
+fullLoopDemo = feedback ((0, 0), Angle 0) proc (_, (observation, action)) -> do
   trueState <- fullLoopPrior -< action
   (newAction@(Angle dir), particles) <- fullLoopAgent -< observation
   newObservation <- fullLoopObservationModel -< trueState
@@ -265,8 +261,8 @@ countDemoObservationModel = proc pos -> do
 countDemoPosterior :: SignalFunction (Stochastic & Unnormalized) (V2 Int) Position
 countDemoPosterior = proc obs -> do
   latent <- countDemoPrior -< ()
-  pred <- countDemoObservationModel -< latent
-  arrM condition -< pred == obs
+  predicted <- countDemoObservationModel -< latent
+  arrM condition -< predicted == obs
   returnA -< latent
 
 countDemoMain :: SignalFunction Stochastic UserInput Picture

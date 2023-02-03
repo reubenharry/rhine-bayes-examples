@@ -9,6 +9,7 @@ import qualified GUI
 import qualified Concurrent
 import qualified Smoothing
 import qualified Example
+import qualified Tutorial
 
 
 main :: IO ()
@@ -20,5 +21,6 @@ main = MainSF.toGloss (MainSF.mainSF [
               (Example.main, "Posterior predictive", ""),
               (Demo.occlusion, "Occlusion", ""),
               (Demo.countDemoMain, "Discrete observation", ""),
-              (Demo.fullLoopDemo, "Agent and World", "")
+              (Demo.fullLoopDemo, "Agent and World", ""),
+              (Tutorial.demo1, "does nothing", "")
               ])

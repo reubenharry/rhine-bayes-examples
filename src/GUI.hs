@@ -2,13 +2,14 @@
 
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
 module GUI where
 
 import Concurrent
 import Control.Lens hiding (from)
 import Control.Monad (forever)
-import FRP.Rhine.Gloss hiding (norm, scale)
-import Inference
+import FRP.Rhine.Gloss hiding (loop, norm, scale)
 import Linear
 import Witch (into)
 import Util
@@ -26,7 +27,7 @@ makePrisms ''KeyState
 
 gui :: SignalFunction Stochastic UserInput Picture
 gui = proc userInput -> do
-  (picture, press) <- button buttonParams {buttonPos=100} -< userInput
+  (picture, _) <- button buttonParams {buttonPos=100} -< userInput
   returnA -< picture
 
 
@@ -47,6 +48,11 @@ toggle initialVal = safely $ forever do
 
 
 
+switch :: (Monad m, Double ~ Time cl, Num b) =>
+  (b -> ClSFExcept m cl a b b)
+  -> 
+  (b -> ClSFExcept m cl a b b)
+  -> ClSF m cl a b
 switch firstSignal secondSignal = safely $ loop 0
   where
     loop v = do
@@ -57,6 +63,14 @@ switch firstSignal secondSignal = safely $ loop 0
       loop pos2
 
 
+multipleSwitch :: (Monad m, Double ~ Time cl, Num b) =>
+  (Int
+  -> b
+  -> ClSF (ExceptT (b, Int) m) cl
+        UserInput
+        b)
+  -> Int
+  -> ClSF m cl UserInput b
 multipleSwitch signals = safely . loop 0
   where
     loop v i = do
@@ -90,12 +104,13 @@ slider pos@(V2 p1 p2) range =
           (withFailureGen cond stayStill)
           (withFailureGen cond (slide pos range))
 
+stayStill :: Monad m => b -> MSF m a b
 stayStill pos = constM $ pure pos
 
 
-slide :: V2 Float -> Float -> a -> SignalFunction Deterministic UserInput (V2 Float)
-slide pos range a = proc userInput -> do
-  let mousePos@(V2 _ y) = (userInput ^. mouse . to (into @(V2 Float))) - pos
+slide :: Arrow t => V2 Float -> Float -> p -> t UserInput (V2 Float)
+slide pos range _ = proc userInput -> do
+  let (V2 _ y) = (userInput ^. mouse . to (into @(V2 Float))) - pos
       (upper, lower) = (range / 2, - range / 2)
   returnA -< V2 0 (min upper $ max lower y)
 
@@ -131,8 +146,8 @@ withFailure' b i pos = try proc userInput -> do
 
 withFailureGen cond b pos = try proc userInput -> do
   pos2 <- b pos -< userInput
-  let b = userInput ^. events . to (any cond)
-  throwOn' -< (b, pos2)
+  let stop = userInput ^. events . to (any cond)
+  throwOn' -< (stop, pos2)
   returnA -< pos2
 
 

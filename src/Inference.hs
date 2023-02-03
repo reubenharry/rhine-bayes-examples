@@ -37,5 +37,5 @@ particleFilterDiscreteTime config msf = particleFilter'' $ spawn (n config) $> m
     particleFilter'' msfs = MSF \a -> do
       bAndMSFs <- runPopulation $ normalize $ resampler config $ flip unMSF a =<< msfs
       let (currentPopulation, continuations) =
-            unzip $ (\((b, msf), weight) -> ((b, weight), (msf, weight))) <$> bAndMSFs
+            unzip $ (\((b, sf), weight) -> ((b, weight), (sf, weight))) <$> bAndMSFs
       return (currentPopulation, particleFilter'' $ fromWeightedList $ return continuations)

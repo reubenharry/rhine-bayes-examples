@@ -3,10 +3,10 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Util where
 import Control.Monad.Bayes.Class
-import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Fix (MonadFix (mfix))
 import FRP.Rhine
 import Control.Monad.Trans.MSF (ReaderT)
@@ -18,7 +18,6 @@ import Linear.V2 (V2(..))
 import qualified Linear as L
 import Numeric.Log (Log (ln))
 import Control.Monad.Bayes.Sampler (SamplerIO, sampleIO)
-import Control.Monad.Bayes.Population (Population)
 import FRP.Rhine.Gloss (GlossConcT)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Data.Tuple (swap)
@@ -61,7 +60,7 @@ type (&) c1 c2 m = (c1 m, c2 m)
 -----
 
 savediv :: (Eq p, Fractional p) => p -> p -> p
-savediv x 0 = 0
+savediv _ 0 = 0
 savediv x y = x / y
 
 instance From a b => From (V2 a) (V2 b) where
@@ -91,10 +90,11 @@ averageOf things =
 
 stdDevOf :: (Functor t, Foldable t, VectorSpace b b) => t (b, Log b) -> b
 stdDevOf things =
-  let average = averageOf things
-      squares = first (\x -> norm (x - average) ** 2) <$> things
+  let av = averageOf things
+      squares = first (\x -> norm (x - av) ** 2) <$> things
    in sqrt $ averageOf squares
 
+expected :: Floating a => [(V2 a, Log a)] -> V2 a
 expected v =
   V2
     (averageOf (fmap (first (view _x)) v))
@@ -103,6 +103,7 @@ expected v =
 normalPdf2D :: V2 Double -> Double -> V2 Double -> Log Double
 normalPdf2D (V2 x1 y1) std (V2 x2 y2) = normalPdf x1 std x2 * normalPdf y1 std y2
 
+safeNorm :: (Num v, VectorSpace v a, Eq v) => v -> a
 safeNorm 0 = 0
 safeNorm x = norm x
 
@@ -130,9 +131,6 @@ observe = arrM factor
 instance MonadFix SamplerIO where
   mfix f = liftIO (mfix (sampleIO . f))
 
-instance MonadFix m => MonadFix (Population m)
-
--- mfix f = undefined $ \x -> runPopulation $ f x
 
 instance MonadSample m => MonadSample (GlossConcT m) where
   random = lift random

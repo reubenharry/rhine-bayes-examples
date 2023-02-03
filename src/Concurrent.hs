@@ -1,6 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- base
 module Concurrent where
 
 import Control.Lens
@@ -52,23 +51,10 @@ noInput = UserInput {_mouse = 0, _keys = mempty, _events = []}
 
 handle :: [Event] -> UserInput -> UserInput
 handle es =
-  (& events .~ es)
+  (events .~ es)
     . ( foldr (.) id . fmap \case
           (EventKey key upOrDown _ _) -> (keys . contains key .~ (upOrDown == Down))
           (EventMotion (x, y)) -> mouse .~ V2 (into @Double x) (into @Double y)
           _ -> id
       )
       es
-
--- gloss :: SignalFunction Stochastic UserInput Picture
--- gloss = proc userInput -> do
---   let actualPosition = (userInput ^. mouse) / 150
---   measuredPosition <- observationModel -< actualPosition
---   samples <- particleFilter params {n = 50} posterior -< measuredPosition
---   renderObjects
---     -<
---       Example.Result
---         { particles = samples,
---           measured = measuredPosition,
---           latent = actualPosition
---         }

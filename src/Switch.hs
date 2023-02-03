@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module Switch where
 
 import Control.Lens (Field1 (_1), Field2 (_2), (%~), (&))
@@ -47,7 +48,7 @@ std = 0.5
 
 switch :: SignalFunction Stochastic () (Double, Bool)
 switch = feedback True $ proc (_, d :: Bool) -> do
-  n <- count -< ()
+  n <- count @Int -< ()
   a <- constM (bernoulli 0.5) -< ()
   returnA -< if n `mod` 50 == 0 then (if a then (-1, True) else (1, False), a) else (if d then (-1, True) else (1, False), d) -- if a then (-1) else 1 else if not a then (-1) else 1
 
@@ -55,7 +56,7 @@ prior :: SignalFunction Stochastic () (Position, (Bool, Bool))
 prior = proc () -> do
   (x, dir1) <- walk1DSwitch -< ()
   (y, dir2) <- walk1DSwitch -< ()
-  returnA -< (uncurry V2 (x, y), (dir1, dir2))
+  returnA -< (V2 x y, (dir1, dir2))
   where
     walk1DSwitch = proc () -> do
       (n, b) <- switch -< ()
@@ -75,7 +76,7 @@ observationModel = proc (p, _) -> do
 
 posterior :: SignalFunction (Stochastic & Unnormalized) Observation (Position, (Bool, Bool))
 posterior = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY, b) <- prior -< () -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
+  latent@(V2 trueX trueY, _) <- prior -< () -- fmap (uncurry V2) $ (constM ((\x -> 10 * (x - 0.5)) <$> random)) &&& (constM ((\x -> 10 * (x - 0.5)) <$> random)) -< ()
   --   observation <- observationModel -< latent
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
   returnA -< latent
