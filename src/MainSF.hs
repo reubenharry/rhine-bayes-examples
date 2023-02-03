@@ -15,9 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Void (Void)
-import qualified Example
 import FRP.Rhine.Gloss hiding (Down, Up)
-import Inference 
 import Text.Megaparsec (MonadParsec (eof), Parsec, runParser)
 import Text.Megaparsec.Char.Lexer (decimal)
 import Witch (into)
