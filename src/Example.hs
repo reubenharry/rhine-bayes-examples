@@ -84,7 +84,6 @@ dot = proc _ -> do
   observed <- observationModel -< actualPosition
   renderObjects -< Result observed actualPosition []
 
-
 posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
 posterior = proc (V2 oX oY) -> do
   latent@(V2 trueX trueY) <- prior -< ()
@@ -95,7 +94,7 @@ gloss :: SignalFunction Stochastic Text Picture
 gloss = proc message -> do
   actualPosition <- prior -< ()
   measuredPosition <- observationModel -< actualPosition
-  samples <- particleFilter params posterior -< measuredPosition
+  samples <- (particleFilter params posterior) -< measuredPosition
   (showObs, showParts) <- interpret -< message
   renderObjects -< Result 
     (if showObs then measuredPosition else 1000) 
@@ -171,8 +170,6 @@ stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev
   velocity <- arr (+ initialVelocity) <<< decayingIntegral 100 -< acceleration
   position <- integralFrom initialPosition -< velocity
   returnA -< (position, position)
-
-
 
 
 countCrosses :: SignalFunction Deterministic Position Int

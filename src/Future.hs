@@ -64,9 +64,6 @@ import Example
     ( glossClock,
       Result(Result, particles, measured, latent),
       Position,
-      std,
-      prior,
-      posterior,
       visualisation, drawBall', drawParticle', Observation, decayingIntegral, edgeBy, edge' )
 import Linear (V2(..))
 import Data.Text (Text)
@@ -93,6 +90,7 @@ import FRP.Rhine.Gloss (SpecialKey(KeyUp))
 import FRP.Rhine.Gloss (SpecialKey(KeyDown))
 import FRP.Rhine.Gloss (Key(Char))
 import Control.Lens.At (Contains(..))
+import GUI (slider)
 
 -- futurePosterior :: (MonadInfer m, Diff td ~ Double, TimeDomain td) => BehaviourF m td Observation Position
 futurePosterior :: SignalFunction (Stochastic & Unnormalized)
@@ -121,6 +119,20 @@ stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev
   position <- integralFrom initialPosition -< velocity
   returnA -< (position, position)
 
+prior :: SignalFunction Stochastic () Position
+prior = proc () -> do 
+  x <- stochasticOscillator 0 2 -< 1
+  y <- stochasticOscillator 2 0 -< 1
+  returnA -< V2 x y
+
+std :: Double
+std = 0.5
+
+posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
+posterior = proc (V2 oX oY) -> do
+  latent@(V2 trueX trueY) <- prior -< ()
+  observe -< normalPdf oY std trueY * normalPdf oX std trueX
+  returnA -< latent
 
 interpret str = either (const 0.1) id $ runParser @Void (float <* eof) "" str
 
@@ -135,7 +147,7 @@ observationModel = proc p -> do
     returnA -< p + V2 x y
     where noise = constM (normal 0 0.1)
 
-past, pastFilter, allPast :: SignalFunction Stochastic Text Picture
+pastFilter, allPast :: SignalFunction Stochastic Text Picture
 future :: SignalFunction Stochastic GlossInput Picture
 future = proc glossInput -> do
             std <- accumulateWith id 0.1 -< glossInput ^. keys . to ((\case
@@ -156,16 +168,24 @@ future = proc glossInput -> do
                                 }
             returnA -< pic <> translate 300 300 (text (show std))
 
-past = proc _ -> do
+past :: SignalFunction Stochastic GlossInput Picture
+past = proc glossInput -> do
+            (sliderPic, r) <- slider (V2 (-400) 400) 60 -< glossInput
             actualPosition <- prior -< ()
-            thePast <- shift 100 -< actualPosition
+            thePast <- shiftBy -< (actualPosition, floor $ (r)*100 + 1)
             measuredPosition <- observationModel -< actualPosition
-            samples <- particleFilter params (posterior >>> shift 100) -< measuredPosition
-            renderObjects -< Result {
+            samples <- particleFilter params ((posterior *** returnA) >>> shiftBy ) -< (measuredPosition, floor $ (r)*100 + 1)
+            pic <- renderObjects -< Result {
                                 particles = samples
                                 , measured = thePast
                                 , latent = actualPosition
                                 }
+            pic2 <- renderObjects -< Result {
+                                particles = []
+                                , measured = measuredPosition
+                                , latent = 1000
+                                }
+            returnA -< pic <> sliderPic <> pic2
 
 allPast = proc _ -> do
             actualPosition <- prior -< ()
@@ -201,10 +221,14 @@ pastFilter = proc _ -> do
 renderObjects ::  Monad m => MSF m Result Picture
 renderObjects = proc Result { particles, measured, latent} -> do
 
-  observation <- drawBall' -< (measured, 0.1, red)
+  observation <- drawBall' -< (measured, 0.05, red)
   ball <- drawBall' -< (latent, 0.1, makeColorI 255 239 0 255)
   parts <- fold <$> mapMSF drawParticle' -< particles
   returnA -< (observation <> ball <> parts)
 
 shift :: Monad m => Int -> MSF m c c
 shift n = accumulateWith (\x xs -> take n $ x : xs) [] >>> arr last
+
+-- shiftBy :: Monad m => Int -> MSF m c c
+shiftBy :: Monad m => MSF m (c, Int) c
+shiftBy = accumulateWith (\(x, n) xs -> take n $ x : xs) [] >>> arr last

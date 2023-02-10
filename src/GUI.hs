@@ -17,6 +17,9 @@ import Witch (From (from), into)
 import Witch.From (From)
 import qualified FRP.Rhine.Gloss as F
 import Data.Maybe
+import Data.MonadicStreamFunction.InternalCore (MSF(..))
+import Control.Monad.Bayes.Class (MonadSample(normal, uniformD))
+import Example (edge, edge')
 
 makeLenses ''Event
 makePrisms ''Event
@@ -30,13 +33,14 @@ instance From a b => From (V2 a) (V2 b) where
   from :: From a b => V2 a -> V2 b
   from (V2 x y) = V2 (from x) (from y)
 
-gui :: SignalFunction Deterministic GlossInput Picture
-gui = proc glossInput -> do
-  (picture, press) <- button False 20 100 -< glossInput
-  (sc, _) <- slider 0 60 -< glossInput
-  V2 x y <- foo -< glossInput
 
-  returnA -< picture <> sc <> translate (into @Float x) (into @Float y) (circle 20)
+gui :: SignalFunction Stochastic GlossInput Picture
+gui = proc glossInput -> do
+  (picture, press) <- button buttonParams {buttonPos=100} -< glossInput
+  -- switch <- edge' -< press 
+  -- circlePos <- arrM (\bool -> if bool then normal 0 10 else pure 1000) -< switch
+  returnA -< picture
+  --  <> translate (into @Float circlePos) (into @Float circlePos) (circleSolid 4) -- picture <> sc <> translate (into @Float x) (into @Float y) (circle 20)
 
 switch firstSignal secondSignal = safely $ loop 0
   where
@@ -48,26 +52,25 @@ switch firstSignal secondSignal = safely $ loop 0
       loop pos2
 
 
-multipleSwitch initialI signals = safely $ loop initialI 0
+multipleSwitch signals = safely . loop 0
   where
-    loop i v = do
+    loop v i = do
       (pos, j) <- withFailure' signals i v
       try $ pos <$ timer 0.01
-      loop j pos
+      loop pos j
 
-foo :: SignalFunction Deterministic GlossInput (V2 Double)
-foo = multipleSwitch 0 signals
 
 multipleChoice :: GlossInput -> Maybe Int
-multipleChoice = arr (^? events . ix 0 . _EventKey . (_1 . _Char . to pure . _Show @Int) )
+multipleChoice = (^? events . ix 0 . _EventKey . _1 . _Char . to pure . _Show @Int)
+
+-- getClick :: GlossInput -> Maybe Int
+getClick = (^? events . ix 0 . _EventKey . _4 . to (uncurry V2) . nearly 0 ((<10) . norm))
 
 
 withFailure' b i pos = try proc glossInput -> do
   pos2 <- b i pos -< glossInput
-  let iMay = multipleChoice glossInput
---   let b = glossInput ^. events . to (any (\case (EventKey (Char 'f') Up _ _) -> True; _ -> False))
-  case iMay of
-    Just i' -> throwOn' -< (isJust iMay, (pos2, i'))
+  case multipleChoice glossInput of
+    Just i' -> throwOn' -< (True, (pos2, i'))
     Nothing -> returnA -< ()
   returnA -< pos2
 
@@ -82,8 +85,9 @@ slider pos@(V2 p1 p2) range =
         let r = v ^. _2 . to (into @Double . (/ range) . (+ range / 2))
          in (
                 translate (x + p1) (y + p2) (circleSolid 10)
-                <> line [(p1, p2), (p1, p2+range)]
-                <> translate p1 (p2 + 30) (F.scale 0.1 0.1 (text (show r))),
+                <> line [(p1, p2-(range/2)), (p1, p2+(range/2))]
+                -- <> translate p1 (p2 + 30) (F.scale 0.1 0.1 (text (show r)))
+                ,
               r
             )
    in toPicture
@@ -111,19 +115,24 @@ slide pos range a = proc glossInput -> do
       (upper, lower) = (range / 2, - range / 2)
   returnA -< V2 0 (min upper $ max lower y)
 
+data ButtonConfig = ButtonConfig {buttonSize :: Float, buttonPos :: V2 Float, buttonColor :: Color, buttonInitialVal :: Bool}
 
-button :: Bool -> Float -> V2 Float -> SignalFunction Deterministic GlossInput (Picture, Bool)
-button initialVal size pos@(V2 xPos yPos) = proc glossInput -> do
-  let mousePos = glossInput ^. mouse . to (into @(V2 Float))
-  let circleSize = size
-  let hover = norm (mousePos - pos) <= circleSize
-  let click = glossInput ^. events . to (any (\case (EventKey (MouseButton LeftButton) Down _ _) -> True; _ -> False))
-  buttonOn <- toggle True -< (hover && click)
-  let circ redOutline redSolid
-        | redSolid = color red $ circleSolid circleSize
-        | redOutline = color red $ circle circleSize
-        | otherwise = circle circleSize
-  returnA -< (translate xPos yPos $ circ hover buttonOn, buttonOn)
+buttonParams :: ButtonConfig
+buttonParams = ButtonConfig {buttonSize = 20, buttonPos = 0, buttonColor = red, buttonInitialVal = False}
+
+button :: ButtonConfig -> SignalFunction Deterministic GlossInput (Picture, Bool)
+button config = let ButtonConfig size pos@(V2 xPos yPos) col initialVal = config 
+  in proc glossInput -> do
+  
+    let mousePos = glossInput ^. mouse . to (into @(V2 Float))
+    let hover = norm (mousePos - pos) <= size
+    let click = glossInput ^. events . to (any (\case (EventKey (MouseButton LeftButton) Down _ _) -> True; _ -> False))
+    buttonOn <- toggle initialVal -< (hover && click)
+    let circ colOutline colSolid
+          | colSolid = color col $ rectangleSolid size size
+          | colOutline = color col $ rectangleWire size size
+          | otherwise = rectangleWire size size
+    returnA -< (translate xPos yPos $ circ hover buttonOn, buttonOn)
 
 toggle :: Bool -> SignalFunction Deterministic Bool Bool
 toggle initialVal = safely $ forever do

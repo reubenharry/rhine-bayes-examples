@@ -63,6 +63,7 @@ import qualified Data.Set as S
 import Example (walk1D)
 import Data.Maybe (fromMaybe)
 import qualified Debug.Trace as Debug
+import qualified Control.Category as C
 
 -- bouncing
 
@@ -544,7 +545,7 @@ languageInf = proc glossInput -> do
         case obs of
             Just (V2 oX oY) -> observe -< normalPdf oY std trueY * normalPdf oX std trueX
             Nothing -> returnA -< ()
-        meaning :: Maybe Position <- arr (\(u,l) -> fmap (l `subtract`) u) -< (utt, lang)
+        let meaning = fmap (lang `subtract`) utt
         case meaning of
             Just u -> observe -< normalPdf2D u std latent
             Nothing -> returnA -< ()

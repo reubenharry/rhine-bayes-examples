@@ -88,6 +88,7 @@ import qualified Triangular
 import qualified Demo
 import qualified GUI
 import qualified Coordination
+import qualified Ising
 
 
 
@@ -158,13 +159,14 @@ mainSF = safely loop
 --     (Tutorial.sim, "Particle tracking", "no image")]
 
   options = [
+              (GUI.gui, "GUI", ""),
               (Demo.gloss, "Particle tracking", "no image"),
 
             --   (constM $ pure mempty, "Definitions", "img/slide.png"),
             --   (constM $ pure mempty, "Particle filter", "img/pf.png"),
             --   (getTextFromGloss >>> hold "" >>> Deterministic.main, "Deterministic", "img/deterministic.png"),
 
-              (getTextFromGloss >>> hold "" >>> Example.dot, "Moving particle", "img/dot.png"),
+              -- (getTextFromGloss >>> hold "" >>> Example.dot, "Moving particle", "img/dot.png"),
             --   (Triangular.gloss, "Triangular agent", "img/gloss.png"),
             --   (getTextFromGloss >>> hold "" >>> Example.gloss, "Particle tracking", "img/gloss.png"),
             --   (getTextFromGloss >>> hold "" >>> Example.weakPrior, "Weak prior", "img/weakPrior.png"),
@@ -179,7 +181,7 @@ mainSF = safely loop
               -- user input
               (Concurrent.gloss, "Follow mouse", "todo"),
 
-            --   (getTextFromGloss >>> hold "" >>> Future.past, "Past smoothed", "todo"),
+              (Future.past, "Past smoothed", "todo"),
             --   (getTextFromGloss >>> hold "" >>> Future.pastFilter, "Past unsmoothed", "todo"),
             --   (getTextFromGloss >>> hold "" >>> Future.allPast, "All past", "todo"),
             --   (Future.future, "Future", "todo"),
@@ -187,23 +189,28 @@ mainSF = safely loop
               -- transform the posterior stream
               (getTextFromGloss >>> hold "" >>> Example.main, "Posterior predictive", "img/predictive.png"),
 
+              (Ising.gloss, "Ising model", ""),
+
               -- mutual recursion
             --   (getTextFromGloss >>> hold "" >>> Mutual.main, "Two deterministic agents", "img/mutual.png"),
-              (getTextFromGloss >>> hold "" >>> MutualStoch.mainSimple, "Two stochastic agents", "img/mutualstoch.png"),
+              -- (getTextFromGloss >>> hold "" >>> MutualStoch.mainSimple, "Two stochastic agents", "img/mutualstoch.png"),
 
               -- inference in the loop
             --   (getTextFromGloss >>> hold "" >>> MutualStoch.selfBelief, "Self justification", "img/mutualstoch.png"),
             --   (MutualStoch.followWhenCertain, "Follow when position is known", "img/follow.png"),
             --   (getTextFromGloss >>> hold "" >>> MutualStoch.main, "Two stochastic uncertain agents", "img/mutualstoch.png"),
             --   (getTextFromGloss >>> hold "" >>> MutualStoch.mainComplex, "Two stochastic uncertain agents: rank 2", "img/mutualstoch.png"),
-              (getTextFromGloss >>> hold "" >>> Active.mainSignal, "Choose observation", "img/active.png"),
+              -- (getTextFromGloss >>> hold "" >>> Active.mainSignal, "Choose observation", "img/active.png"),
+              (Demo.occlusion, "Occlusion", "img/active.png"),
+              (Demo.countDemoMain, "Discrete observation", "no image"),
+              -- (Demo.circleMain, "Squares", "no image"),
+              (Demo.fullLoopDemo, "Agent and World", "img/active.png"),
             --   (getTextFromGloss >>> hold "" >>> Pong.mainSignal, "Pong", "img/pong.png"),
             --   (Control.gloss, "One agent control", "img/control.png"),
 
-              (MutualStoch.language, "Language", "img/control.png"),
-              (MutualStoch.languageInf, "Infer language", "img/control.png"),
-              (MutualStoch.languageInf2, "Infer language", "img/control.png"),
-              (GUI.gui, "GUI", ""),
+              -- (MutualStoch.language, "Language", "img/control.png"),
+              -- (MutualStoch.languageInf2, "Communication", "img/control.png")
+              -- (MutualStoch.languageInf2, "Infer language", "img/control.png"),
               (Coordination.main, "language", "")
             --   (Coordination.main2, "language", "")
               ]

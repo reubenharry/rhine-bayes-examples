@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE TypeApplications #-}
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -26,7 +26,8 @@
 
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
+
 
 
 
@@ -34,7 +35,7 @@ module Demo where
 
 
 import FRP.Rhine
-import Inference (particleFilter, Stochastic, type (&), Unnormalized, SignalFunction, Deterministic, particleFilter, observe, hold, params)
+import Inference (particleFilter, Stochastic, type (&), Unnormalized, SignalFunction, Deterministic, particleFilter, observe, hold, params, SMCSettings (n))
 import FRP.Rhine.Gloss
 import Numeric.Log
 import GHC.Float
@@ -49,28 +50,40 @@ import Control.Concurrent
 import Control.Monad (void, forever)
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Foldable (Foldable(fold))
-import Prelude hiding (Real)
+import Prelude hiding ((.), Real)
 import qualified Control.Monad.Morph as MM
 import Data.Text (Text)
 import Control.Monad.Trans.MSF.Except (performOnFirstSample)
 import qualified Data.Vector as VV
-import Linear (V2)
+import Linear ( V2, _y )
 import Linear.V2 (V2(..))
 import qualified Linear as L
 import Witch (into)
-import Example ( renderObjects, Result (Result))
-import Concurrent (GlossInput, keys, events)
+import Example ( renderObjects, Result (Result, measured), particles, latent)
+import Concurrent (GlossInput, keys, events, mouse)
 import Control.Lens
-import Future (toggle)
+import Future (toggle, prior)
 import Data.Set (toList)
 import qualified Data.Set as S
 import qualified Debug.Trace as Debug
 import Control.Monad.Trans.MSF (MSFExcept)
 import Control.Monad.Trans.MSF.Reader (ReaderT)
 import qualified Example
-import GUI (button, withFailure, slider, multipleSwitch)
-import GUI (switch)
-
+import GUI
+    ( button,
+      withFailure,
+      slider,
+      multipleSwitch,
+      ButtonConfig(buttonPos, buttonColor, buttonInitialVal),
+      buttonParams,
+      switch )
+import Linear (_x)
+import Control.Category as C
+import Circular (Angle(..), angle', mkAngle)
+import MutualStoch (expected, normalPdf2D, moveAwayFrom)
+import Linear (unangle)
+import Linear.Metric (Metric(..))
+import Triangular (drawTriangle)
 -- std :: Double
 -- std = 1
 
@@ -83,16 +96,51 @@ type Std = Double
 -- p :: SignalFunction Stochastic GlossInput Position
 
 
-priorFrom v = proc glossInput -> do
-            (+v) <$> Example.prior -< ()
+priorFrom :: Position -> SignalFunction Stochastic a Position
+priorFrom v@(V2 x y) = fmap (+(V2 x (y-2))) proc _ -> do
+            xAxis <- Example.stochasticOscillator 0 2 -< 1
+            yAxis <- Example.stochasticOscillator 2 0 -< 1
+            returnA -< V2 xAxis yAxis
 
 moveWithArrows pos = proc glossInput -> do
-            let velD = if glossInput ^. keys . contains (Char 'd') then V2 0.1 0 else 0
-            let velA = if glossInput ^. keys . contains (Char 'a') then V2 (-0.1) 0 else 0
-            let velW = if glossInput ^. keys . contains (Char 'w') then V2 0 0.1 else 0
-            let velS = if glossInput ^. keys . contains (Char 's') then V2 0 (-0.1) else 0
+            let velD = if glossInput ^. keys . contains (Char 'd') then V2 1 0 else 0
+            let velA = if glossInput ^. keys . contains (Char 'a') then V2 (-1) 0 else 0
+            let velW = if glossInput ^. keys . contains (Char 'w') then V2 0 1 else 0
+            let velS = if glossInput ^. keys . contains (Char 's') then V2 0 (-1) else 0
             fmap (+pos) integral -< velD + velA + velW + velS
 
+moveInLines :: V2 Double -> SignalFunction Stochastic a (V2 Double)
+moveInLines v = fmap (+v) (safely m)
+
+  where
+    line :: V2 Double -> SignalFunction Deterministic () (V2 Double)
+    line dir@(V2 b1 b2)= proc _ -> do
+      integral -< dir
+
+    m :: (Double ~ Time cl, Stochastic m) => MSFExcept (ReaderT (TimeInfo cl) m) a (V2 Double) b
+    m = loop 0
+      where loop i = do
+                xB <- once $ const $ bernoulli 0.5
+                yB <- once $ const $ bernoulli 0.5
+                point <- try $ n i (V2 (if xB then 1 else (-1)) (if yB then 1 else (-1)))
+                loop point
+
+    n :: (Double ~ Time cl, Monad m) => V2 Double -> V2 Double -> ClSF (ExceptT (V2 Double) m) cl a (V2 Double)
+    n p dir = proc _ -> do
+      t <- sinceStart -< ()
+      l <- (+p) <$> line dir -< ()
+      throwOn' -< (t>1, l )
+      returnA -< l
+
+
+
+
+
+gravity :: V2 Double -> SignalFunction Stochastic a (V2 Double)
+gravity v = fmap ((& _y %~ max 0) . (+v)) (proc _ -> do
+  vel <- integral -< V2 0 (-1)
+  pos <- integral -< vel
+  returnA -< pos)
 
 weakPrior :: SignalFunction Stochastic a Position
 weakPrior = proc _ -> do
@@ -105,22 +153,26 @@ weakPrior = proc _ -> do
       uniform01 <- random
       return (10 * (uniform01 - 0.5))
 
-prior :: SignalFunction Stochastic GlossInput Position
-prior =
-    multipleSwitch 1 signals where
+groundTruth :: SignalFunction Stochastic GlossInput Position
+groundTruth =
+    multipleSwitch signals 1 where
 
         signals 1 = priorFrom
-        signals 2 = const weakPrior
+        signals 2 = \v -> proc _ -> (+v) <$> Example.prior -< ()
+        signals 3 = const weakPrior
+        signals 4 = moveWithArrows
+        signals 5 = moveInLines
+        signals 6 = gravity
         signals _ = moveWithArrows
 
--- groundTruth :: SignalFunction Stochastic GlossInput Position
--- groundTruth =
+-- prior :: SignalFunction Stochastic GlossInput Position
+-- prior =
 --     multipleSwitch  signals where
 
 --         signals 3 = priorFrom
 --         signals 4 = const weakPrior
 --         signals _ = moveWithArrows
-        
+
 
     -- switch (withFailure priorFrom) (withFailure moveWithArrows)
 
@@ -141,7 +193,7 @@ observationModel = proc (p, showObservation, std) -> do
 
 posterior :: SignalFunction (Stochastic & Unnormalized) (Observation, Bool, Std, GlossInput) Position
 posterior = proc (obs, showObs, std, stay) -> do
-  latent <- prior -< stay
+  latent <- groundTruth -< stay
   predictedObs <- generativeModel -< (latent, showObs)
   case (obs, predictedObs) of
     (Just (V2 oX oY), Just (V2 trueX trueY) ) ->
@@ -160,17 +212,168 @@ gloss = proc glossInput -> do
 --                 (SpecialKey KeyDown : _) -> (\x -> max (x - 0.1) 0.1)
 --                 _ -> id
 --                 ) . toList)
-  (buttonPic, withObservation) <- button True 20 (V2 400 400) -< glossInput
-  actualPosition <- Example.prior -< ()
+  (buttonPic, withObservation) <- button buttonParams{
+    buttonPos=V2 (-300) 400,
+    buttonColor=red} -< glossInput
+  (particlebuttonPic, showParticles) <- button buttonParams{
+    buttonPos=V2 (-200) 400,
+    buttonColor=violet} -< glossInput
+  actualPosition <- groundTruth -< glossInput
   measuredPosition <- observationModel -< (actualPosition, withObservation, std)
-  samples <- particleFilter params posterior -< (measuredPosition, withObservation, std, glossInput)
+  samples <- particleFilter params{n=75} posterior -< (measuredPosition, withObservation, std, glossInput)
 --   (showObs, showParts) <- interpret -< message
   pic <- renderObjects -< Result
     (case measuredPosition of Just x -> x; _ -> 1000)
     actualPosition
-    (if True then samples else [])
-  returnA -< pic <> buttonPic <> sliderPic
+    (if showParticles then samples else [])
+  returnA -< pic <> buttonPic <> sliderPic <> particlebuttonPic
+    <> translate 100 400 (scale 0.1 0.1 (text "1: Oscillator  2: Random Walk   3: White noise   4: User Input   5: Straight Lines   6: Gravity"))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+traceIt x = Debug.trace (show x) x
+
+agentWidth :: RealFloat a => a
+agentWidth = 0.5
+
+occlusionPrior :: SignalFunction Stochastic () Double
+occlusionPrior = fmap (*2) Example.walk1D -- fmap (\x -> (x - 0.5)*8) $ constM random
+
+occlusionObsModel :: SignalFunction Deterministic (Double, (Double, Double)) (Maybe Double)
+occlusionObsModel = arr \(barWidth, (agentPos, pos)) -> if abs pos < (barWidth/2) || abs (pos - agentPos) > (agentWidth/2) then Nothing else Just pos
+
+occlusionPosterior :: SignalFunction (Stochastic & Unnormalized) (Double, Double, Maybe Double) Double
+occlusionPosterior = proc (agentPos, barWidth, obs) -> do
+  latent <- occlusionPrior -< ()
+  pred <- occlusionObsModel -< (barWidth, (agentPos, latent))
+  case (obs, pred) of
+    (Just o, Just o') -> observe -< normalPdf o 0.1 o'
+    (a, b) -> arrM condition -< a==b
+    _ -> returnA -< ()
+  returnA -< latent
+
+occlusion :: SignalFunction Stochastic GlossInput Picture
+occlusion = proc glossInput -> do
+  -- truePos <- occlusionPrior -< ()
+  (buttonPic, withObservation) <- button buttonParams{
+    buttonPos=V2 (-300) 400,
+    buttonColor=red,
+    buttonInitialVal=False} -< glossInput
+  let truePos = 0
+  let agentPos = glossInput ^. mouse . _x . to (/150)
+  let barWidth = if withObservation then 0 else 1
+  obs <- occlusionObsModel -< (into @Double barWidth, (truePos, agentPos))
+  belief <- particleFilter params{n=100} occlusionPosterior -< (agentPos, into @Double barWidth, obs)
+  pic <- renderObjects -< Result {
+    measured = case obs of Nothing -> 1000; Just o -> V2 o 2,
+    particles = first (`V2` 0) <$> belief,
+    latent = V2 truePos 0
+    }
+  let agentPosFloat = into @Float agentPos
+  let trianglePic = scale 150 150 $ polygon [(agentPosFloat, 2), (agentPosFloat + (agentWidth/2), 2 + 0.25), (agentPosFloat - (agentWidth/2),2 + 0.25), (agentPosFloat,2)]
+  returnA -< pic <> scale 150 150 (line [((-barWidth / 2) , 1), ((barWidth / 2), 1)]) <> buttonPic
+    <> trianglePic
+
+
+
+fullLoopPrior :: SignalFunction Stochastic Angle (V2 Double, V2 Double)
+fullLoopPrior = proc ang -> do
+  agentPos <- integral -< angle' ang * 0.2
+  statePos <- moveAwayFrom -< agentPos
+  returnA -< (4 + agentPos, statePos)
+
+fullLoopObservationModel :: SignalFunction Stochastic (V2 Double, V2 Double) (V2 Double, V2 Double)
+fullLoopObservationModel = proc (agentPos, statePos) -> do 
+  (x,y) <- (noise &&& noise) -< 0.5
+  returnA -< (agentPos, statePos + V2 x y)
+    where noise = arrM (normal 0)
+ 
+fullLoopAgent :: SignalFunction Stochastic (V2 Double, V2 Double) (Angle, [(V2 Double, Log Double)])
+fullLoopAgent = feedback (mkAngle 0) proc (obs, oldAction) -> do
+  belief <- particleFilter params{n=75} fullLoopObservationPosterior -< (oldAction, obs)
+  let stateBelief = first snd <$> belief
+  let agentBelief = first fst <$> belief 
+  let newAction = Angle $ unangle (signorm (expected stateBelief - expected agentBelief))
+  returnA -< ((newAction, stateBelief), newAction)
+
+fullLoopObservationPosterior :: SignalFunction (Stochastic & Unnormalized) (Angle,( V2 Double, V2 Double)) (V2 Double, V2 Double)
+fullLoopObservationPosterior = proc (ang, (_, obs)) -> do
+  latent@(_, latentState) <- fullLoopPrior -< ang
+  observe -< normalPdf2D latentState 0.5 obs
+  returnA -< latent
+
+fullLoopDemo :: SignalFunction Stochastic GlossInput Picture 
+fullLoopDemo = feedback ((0, 0), Angle 0 ) proc (glossInput, (observation, action)) -> do
+
+  trueState <- fullLoopPrior -< action
+  (newAction, particles) <- fullLoopAgent -< observation
+  newObservation <- fullLoopObservationModel -< trueState
+
+  pic2 <- renderObjects -< Result {particles=particles, latent=snd trueState, measured= snd newObservation}
+  let pic = pic2 <> drawTriangle (fst trueState, newAction, 0.2, red)
+  returnA -< (pic, (newObservation, newAction))
+
+
+countDemoPrior :: SignalFunction Stochastic () Position
+countDemoPrior = Future.prior
+
+countDemoObservationModel :: SignalFunction Deterministic Position (V2 Int)
+countDemoObservationModel = proc pos -> do
+  i <- Example.edgeBy (>0) -< pos ^. _x
+  j <- Example.edgeBy (>0) -< pos ^. _y
+  returnA -< V2 i j
+
+countDemoPosterior :: SignalFunction (Stochastic & Unnormalized) (V2 Int) Position
+countDemoPosterior = proc obs -> do
+  latent <- countDemoPrior -< ()
+  pred <- countDemoObservationModel -< latent 
+  arrM condition -< pred == obs 
+  returnA -< latent
+
+countDemoMain :: SignalFunction Stochastic GlossInput Picture
+countDemoMain = proc _ -> do
+    truePos <- countDemoPrior -< ()
+    trueObs <- countDemoObservationModel -< truePos
+    belief <- particleFilter params{n=75} countDemoPosterior -< trueObs
+    pic <- renderObjects -< Result {latent = truePos, measured = 1000, particles = belief }
+    returnA -< pic <> scale 0.2 0.2 (text $ show trueObs)
+
+circlePrior :: SignalFunction Stochastic () (V2 Double)
+circlePrior = proc _ -> do
+  x <- Example.stochasticOscillator 0 1 -< 0.5
+  y <- Example.stochasticOscillator 0 1 -< 0.5
+  returnA -< V2 (abs x + 1) (abs y + 1)
+
+circleObservationModel :: SignalFunction Stochastic (V2 Double) (V2 Double)
+circleObservationModel = proc (pos) -> do 
+  (x,y) <- (noise &&& noise) -< 0.5
+  returnA -< (pos + V2 x y)
+    where noise = arrM (normal 0)
+
+circlePosterior :: SignalFunction (Stochastic & Unnormalized) (V2 Double) (V2 Double)
+circlePosterior = proc obs -> do
+  latent <- circlePrior -< ()
+  observe -< normalPdf2D obs 0.5 latent
+  returnA -< latent
+
+circleMain :: SignalFunction Stochastic GlossInput Picture
+circleMain = proc _ -> do
+  true <- circlePrior -< ()
+  obs <- circleObservationModel -< true
+  belief <- particleFilter params{n=75} circlePosterior -< obs
+  let makePic col (V2 a b, prob) = color (withAlpha (into @Float $ exp $ 0.2 * ln prob) col) $ scale 150 150 $ scale (into @Float a) (into @Float b) (rectangleWire 2 2)
+  returnA -< makePic red ( true, 1.0 :: Log Double) <> mconcat (makePic violet <$> belief)
 
 -- interpret :: Monad m => MSF
 --   m

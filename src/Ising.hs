@@ -24,6 +24,8 @@ import Example (glossClock)
 import Data.Foldable (Foldable(fold))
 import Witch (from)
 import Control.Monad.Morph (MonadTrans(lift))
+import Inference (Stochastic, SignalFunction)
+import Concurrent (GlossInput(..))
 -- import Control.Comonad.Store hiding (StoreT, Store)
 
 
@@ -85,14 +87,10 @@ unfoldM init step = feedback init proc ((), b) -> do
 
 
 
-gloss :: IO ()
-gloss = sampleIO $
-        launchGlossThread defaultSettings
-            { display = InWindow "rhine-bayes" (1024, 960) (10, 10) }
-        $ reactimateCl glossClock proc () -> do
+gloss :: SignalFunction Stochastic GlossInput Picture
+gloss = proc _ -> do
             grid <- sf -< ()
-            constM (lift clearIO) -< ()
-            arrMCl paintIO -< render grid
+            arr render -< grid
             -- actualPosition <- prior -< ()
             -- measuredPosition <- observationModel -< actualPosition
             -- samples <- particleFilter params {n = 200} posterior -< measuredPosition

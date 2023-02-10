@@ -15,6 +15,41 @@ import Example (empirical)
 
 type UserInput = GlossInput 
 
+-- how do arrows + proc work: tick
+-- benefits of approach
+
+-- how does inference work 
+
+-- inference :: SignalFunction Unnormalized a b -> SignalFunction Stochastic a [(b, Log Double)]
+
+-- run sampleRate walk1D
+
+walk1D :: SignalFunction Stochastic () Double
+walk1D = proc _ -> do
+    dacceleration <- constM (normal 0 8 ) -< ()
+    acceleration <- integral -< dacceleration
+    velocity <- integral -< acceleration -- Integral, dying off exponentially
+    position <- integral -< velocity
+    returnA -< position
+
+foo :: SignalFunction Stochastic UserInput Bool
+foo = undefined
+
+
+
+bar :: SignalFunction Stochastic Bool Picture
+bar = undefined
+
+bar2 :: SignalFunction Stochastic Bool Picture
+bar2 = undefined
+
+baz :: SignalFunction Stochastic UserInput (Picture, Picture)
+baz = proc userInput -> do
+    firstBit <- foo -< userInput
+    secondBit <- bar -< firstBit
+    secondBit2 <- bar2 -< firstBit
+    returnA -< (secondBit, secondBit2)
+-- SignalFunction Stochastic UserInput Picture
 
 sim :: SignalFunction Stochastic UserInput Picture
 sim = proc userInput -> do
