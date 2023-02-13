@@ -1,7 +1,7 @@
 module Smoothing where
 
 import Concurrent (UserInput)
-import Control.Monad.Bayes.Class (MonadSample (normal), normalPdf)
+import Control.Monad.Bayes.Class (MonadDistribution (normal), normalPdf)
 import Data.MonadicStreamFunction
 import Example
   ( Observation,

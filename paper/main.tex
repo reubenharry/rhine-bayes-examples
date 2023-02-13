@@ -15,11 +15,11 @@ example = do
 
 Monad-Bayes builds on top of this idea, by identifying multiple ways to represent the type of distributions, and abstracting these into a typeclass. These representations include a sampler, a weighted sampler, a numerical integrator, and several others.
 
-More precisely, there are two typeclasses, one for normalized distributions (called `MonadSample`), and one for unnormalized distributions (called `MonadInfer`) as one might obtain from adding factors to a probabilistic graphical model, or describing a posterior distribution.
+More precisely, there are two typeclasses, one for normalized distributions (called `MonadDistribution`), and one for unnormalized distributions (called `MonadMeasure`) as one might obtain from adding factors to a probabilistic graphical model, or describing a posterior distribution.
 
 Standard Bayesian inference procedures can be represented by measure preserving transforms inside and between these representations of distributions. Supported inference methods include SMC, (traced) MCMC, and combinations of the two. 
 
-As an example, a simple inference method is weighted sampling. This converts a probabilistic program of type `program :: MonadInfer m => m X` which is an *unnormalized* distribution over values of some type `X`, to `weighted program :: MonadSample m => m [(X, Double)]` which is a *normalized* distribution over pairs of values of type `X` and their probabilities. One can then sample from this resulting distribution. 
+As an example, a simple inference method is weighted sampling. This converts a probabilistic program of type `program :: MonadMeasure m => m X` which is an *unnormalized* distribution over values of some type `X`, to `weighted program :: MonadDistribution m => m [(X, Double)]` which is a *normalized* distribution over pairs of values of type `X` and their probabilities. One can then sample from this resulting distribution. 
 
 Monad-Bayes' approach has two great benefits. First, it is a first class library in Haskell, rather than an embedded language. As such, any Haskell code, from any library whatsoever, can be used in the construction of a probabilistic program, a property which is rarely true of PPLs. As an example, figure todo shows code which generates a distribution over histograms directly.
 
@@ -67,7 +67,7 @@ Probabilistic programming with `monad-bayes` centers on the observation that dis
 If we set this monad to be a distribution monad, we arrive directly to a representation of stochastic processes:
 
 ```haskell
-type StochasticProcess a b = forall m. MonadSample m => SF m a b
+type StochasticProcess a b = forall m. MonadDistribution m => SF m a b
 ```
 
 More precisely, a stochastic process with values of type `a` would correspond to the type `StochasticProcess () a`, in other words, the output of a function from the trivial stochastic process to
@@ -122,15 +122,15 @@ In Monad-Bayes, this amounts to choosing an appropriate representation of the pr
 In particular, we can define a real-time version of Sequential Monte Carlo (aka particle filtering) which has type:
 
 ```haskell
-particleFilter :: MonadSample m => Int ->
+particleFilter :: MonadDistribution m => Int ->
   -> SF (Population m) a b
   -> SF m a [(b, Log Double)]
 ```
 
-For instance, `posterior` as defined above is of the form `MSF (Population m) a b` (because `Population m` is an instance of `MonadInfer`). So we can write
+For instance, `posterior` as defined above is of the form `MSF (Population m) a b` (because `Population m` is an instance of `MonadMeasure`). So we can write
 
 ```haskell
-inferredPosterior = particleFilter 100 posterior :: MonadSample m => SF m a [(Position, Log Double)] 
+inferredPosterior = particleFilter 100 posterior :: MonadDistribution m => SF m a [(Position, Log Double)] 
 ```
 
 `observations >>> inferredPosterior` is still a stochastic process, but at a given time point, its value is a set of 100 "particles", each a possible value of type `Position`. This is precisely a particle filter.

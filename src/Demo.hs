@@ -3,7 +3,7 @@ module Demo where
 import Concurrent (UserInput, keys, mouse)
 import Control.Category as C
 import Control.Lens
-import Control.Monad.Bayes.Class
+import Control.Monad.Bayes.Class hiding (prior, posterior)
 import Control.Monad.Trans.MSF (MSFExcept)
 import Control.Monad.Trans.MSF.Reader (ReaderT)
 import Inference
@@ -50,13 +50,13 @@ groundTruth =
 
 
 -- Using the slightly less user friendly version of the types here, for technical reasons
-oscillator :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
+oscillator :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
 oscillator (V2 x y) = fmap (+ V2 x (y -2)) proc _ -> do
   xAxis <- Example.stochasticOscillator 0 2 -< 1
   yAxis <- Example.stochasticOscillator 2 0 -< 1
   returnA -< V2 xAxis yAxis
 
-moveWithArrows :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)
+moveWithArrows :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)
 moveWithArrows pos = proc userInput -> do
   let velD = if userInput ^. keys . contains (Char 'd') then V2 1 0 else 0
   let velA = if userInput ^. keys . contains (Char 'a') then V2 (-1) 0 else 0
@@ -64,7 +64,7 @@ moveWithArrows pos = proc userInput -> do
   let velS = if userInput ^. keys . contains (Char 's') then V2 0 (-1) else 0
   fmap (+ pos) integral -< velD + velA + velW + velS
 
-moveInLines :: (MonadSample m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
+moveInLines :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
 moveInLines v = fmap (+ v) (safely lines)
   where
 

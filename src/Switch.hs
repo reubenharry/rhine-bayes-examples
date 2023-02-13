@@ -3,7 +3,7 @@ module Switch where
 
 import Control.Lens (Field1 (_1), Field2 (_2), (%~), (&))
 import Control.Monad.Bayes.Class
-  ( MonadSample (bernoulli, normal),
+  ( MonadDistribution (bernoulli, normal),
     normalPdf,
   )
 import Control.Monad.Trans.MSF.List (mapMSF)
@@ -20,7 +20,7 @@ import Data.MonadicStreamFunction
 import Data.MonadicStreamFunction.InternalCore (MSF, feedback)
 import Data.Ord (Down (..))
 import Data.Text (Text)
-import Example (Observation, Position, drawBall')
+import Example (Observation, Position, drawBall)
 import FRP.Rhine
   ( VectorSpace ((*^)),
     average,
@@ -116,16 +116,16 @@ col = \case
 visualisation :: Monad m => MSF m Result Picture
 visualisation = proc Result {particles, measured, latent, direction} -> do
   parts <- fold <$> mapMSF drawParticle -< particles & traverse . _1 . _2 %~ col
-  obs <- drawBall' -< (measured, 0.05, red)
+  obs <- drawBall -< (measured, 0.05, red)
   let (pos, trueColor) = latent
-  ball <- drawBall' -< (pos, 0.3, withAlpha 0.5 $ col trueColor)
+  ball <- drawBall -< (pos, 0.3, withAlpha 0.5 $ col trueColor)
   let infText = translate (-280) 220 $ scale 0.2 0.2 $ text ("Inferred " <> direction)
   let trueText = translate (-280) 250 $ scale 0.2 0.2 $ text ("True: " <> disp trueColor)
   returnA -< (parts <> obs <> ball <> infText <> trueText)
 
 drawParticle :: Monad m => MSF m ((Position, Color), Log Double) Picture
 drawParticle = proc ((position, c), probability) -> do
-  drawBall' -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) c)
+  drawBall -< (position, 0.1, withAlpha (into @Float $ exp $ 0.2 * ln probability) c)
 
 data Result = Result
   { measured :: Observation,

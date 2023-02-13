@@ -17,7 +17,7 @@ import Linear (V2, _x, _y)
 import Linear.V2 (V2(..))
 import qualified Linear as L
 import Numeric.Log (Log (ln))
-import Control.Monad.Bayes.Sampler (SamplerIO, sampleIO)
+import Control.Monad.Bayes.Sampler.Strict (SamplerIO, sampleIO)
 import FRP.Rhine.Gloss (GlossConcT)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Data.Tuple (swap)
@@ -28,11 +28,11 @@ import Control.Lens (view)
 -- helpful names for common types, for user-facing readability
 ----
 
-type Unnormalized = MonadCond
+type Unnormalized = MonadFactor
 
-type Stochastic = MonadSample
+type Stochastic = MonadDistribution
 
-type UnnormalizedStochastic = MonadInfer
+type UnnormalizedStochastic = MonadMeasure
 
 type InputOutput = MonadIO
 
@@ -120,7 +120,7 @@ hold a = feedback a proc (x, old) -> do
 time :: SignalFunction Deterministic b Double
 time = sinceStart
 
-observe :: (Monad m, MonadCond m) => MSF m (Log Double) ()
+observe :: (Monad m, MonadFactor m) => MSF m (Log Double) ()
 observe = arrM factor
 
 
@@ -132,8 +132,7 @@ instance MonadFix SamplerIO where
   mfix f = liftIO (mfix (sampleIO . f))
 
 
-instance MonadSample m => MonadSample (GlossConcT m) where
+instance MonadDistribution m => MonadDistribution (GlossConcT m) where
   random = lift random
 
-instance MonadSample m => MonadSample (ExceptT e m) where
-  random = lift random
+  

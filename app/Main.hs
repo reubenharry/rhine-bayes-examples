@@ -2,6 +2,8 @@
 
 module Main (main) where
 
+
+
 import qualified MainSF 
 
 import qualified Demo
@@ -21,6 +23,5 @@ main = MainSF.toGloss (MainSF.mainSF [
               (Example.main, "Posterior predictive", ""),
               (Demo.occlusion, "Occlusion", ""),
               (Demo.countDemoMain, "Discrete observation", ""),
-              (Demo.fullLoopDemo, "Agent and World", ""),
-              (Tutorial.demo1, "does nothing", "")
+              (Demo.fullLoopDemo, "Agent and World", "")
               ])

@@ -2,7 +2,7 @@
 module Example where
 
 import Concurrent (UserInput)
-import Control.Monad.Bayes.Class
+import Control.Monad.Bayes.Class hiding (prior, posterior)
 import Control.Monad.Bayes.Enumerator (enumerate)
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Foldable (Foldable (fold))
@@ -134,6 +134,23 @@ main = proc _ -> do
   probTable <- visualizeTable -< numberOfCrosses
   returnA -< objects <> probTable
 
+
+
+moveAwayFrom :: SignalFunction Stochastic Position Position
+moveAwayFrom = feedback 0 proc (otherBall, prevPos) -> do
+  dacceleration <- constM (normal 0 8) &&& constM (normal 0 8) -< ()
+  acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
+  let repulsion =
+        fmap
+          (savediv (safeNorm (prevPos - otherBall)))
+          (prevPos - otherBall)
+  velocity <- decayingIntegral 1 -< acceleration + repulsion -- Integral, dying off exponentially
+  position <- decayingIntegral 1 -< velocity
+
+  returnA -< (position, position)
+
+
+
 ----------
 -- display
 ----------
@@ -142,7 +159,7 @@ main = proc _ -> do
 toTable :: (Show b, Ord b) => [((a, b), Log Double)] -> [String]
 toTable = intersperse "\n" . fmap (\(x, p) -> "Number: " <> show x <> "       Probability: " <> show p) . enumerate . empirical . fmap (first snd)
 
-empirical :: MonadSample m => [(b, Log Double)] -> m b
+empirical :: MonadDistribution m => [(b, Log Double)] -> m b
 empirical ls = do
   let (vs, ps) = unzip ls
   i <- logCategorical $ VV.fromList ps
@@ -163,17 +180,12 @@ edgeBy p = proc a -> do
   e <- edge -< b
   returnA -< e
 
-visualisation :: MonadIO m => Diff td ~ Double => BehaviourF (GlossConcT m) td Result ()
-visualisation = proc Result {particles, measured, latent} -> do
-  drawBall -< (measured, 0.05, red)
-  drawBall -< (latent, 0.15, makeColorI 255 239 0 255)
-  drawParticles -< particles
 
 renderObjects :: Monad m => MSF m Result Picture
 renderObjects = proc Result {particles, measured, latent} -> do
-  observation <- drawBall' -< (measured, 0.05, red)
-  ball <- drawBall' -< (latent, 0.15, makeColorI 255 239 0 255)
-  parts <- fold <$> mapMSF drawParticle' -< particles
+  observation <- drawBall -< (measured, 0.05, red)
+  ball <- drawBall -< (latent, 0.15, makeColorI 255 239 0 255)
+  parts <- fold <$> mapMSF drawParticle -< particles
   returnA -< (observation <> ball <> parts)
 
 visualizeTable :: Monad m => MSF m [String] Picture
@@ -182,31 +194,11 @@ visualizeTable = proc str -> do
   let circ = circle 75
   returnA -< table <> circ
 
-drawBall :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) ()
+
+
+-- drawBall :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) Picture
+drawBall :: Monad m => MSF m (V2 Double, Double, Color) Picture
 drawBall = proc (V2 x y, width, theColor) -> do
-  arrMCl paintIO
-    -<
-      scale 150 150 $
-        translate (double2Float x) (double2Float y) $
-          color theColor $
-            circleSolid $
-              double2Float width
-
-drawParticle :: MonadIO m => BehaviourF (GlossConcT m) td (Position, Log Double) ()
-drawParticle = proc (position, probability) -> do
-  drawBall -< (position, 0.1, withAlpha (double2Float $ exp $ 0.2 * ln probability) violet)
-
-drawParticles :: MonadIO m => BehaviourF (GlossConcT m) td [(Position, Log Double)] ()
-drawParticles = proc particles -> do
-  case particles of
-    [] -> returnA -< ()
-    p : ps -> do
-      drawParticle -< p
-      drawParticles -< ps
-
--- drawBall' :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) Picture
-drawBall' :: Monad m => MSF m (V2 Double, Double, Color) Picture
-drawBall' = proc (V2 x y, width, theColor) -> do
   returnA
     -<
       scale 150 150 $
@@ -215,9 +207,9 @@ drawBall' = proc (V2 x y, width, theColor) -> do
             circleSolid $
               into @Float width
 
-drawParticle' :: Monad m => MSF m (Position, Log Double) Picture
-drawParticle' = proc (position, probability) -> do
-  drawBall' -< (position, 0.1, withAlpha (double2Float $ exp $ 0.2 * ln probability) violet)
+drawParticle :: Monad m => MSF m (Position, Log Double) Picture
+drawParticle = proc (position, probability) -> do
+  drawBall -< (position, 0.1, withAlpha (double2Float $ exp $ 0.2 * ln probability) violet)
 
 data Result = Result
   { --   estimate :: Position
@@ -228,18 +220,6 @@ data Result = Result
   }
   deriving (Show)
 
-moveAwayFrom :: SignalFunction Stochastic Position Position
-moveAwayFrom = feedback 0 proc (otherBall, prevPos) -> do
-  dacceleration <- constM (normal 0 8) &&& constM (normal 0 8) -< ()
-  acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
-  let repulsion =
-        fmap
-          (savediv (safeNorm (prevPos - otherBall)))
-          (prevPos - otherBall)
-  velocity <- decayingIntegral 1 -< acceleration + repulsion -- Integral, dying off exponentially
-  position <- decayingIntegral 1 -< velocity
-
-  returnA -< (position, position)
 
 drawTriangle :: (V2 Double, Double, Float, Color) -> Picture
 drawTriangle (V2 p1 p2, dir, size, col) =

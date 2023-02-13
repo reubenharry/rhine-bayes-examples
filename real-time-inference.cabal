@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.0.
+-- This file has been generated from package.yaml by hpack version 0.35.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -35,6 +35,7 @@ library
       Switch
       Tutorial
       Util
+      Convention
   other-modules:
       Paths_real_time_inference
   hs-source-dirs:
@@ -62,6 +63,10 @@ library
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , singletons
+    , singletons-th
+    , rhine
+    , rhine-gloss
     , containers
     , dunai
     , gloss
@@ -72,7 +77,6 @@ library
     , mmorph
     , monad-bayes
     , rhine
-    , rhine-gloss
     , text
     , transformers
     , vector
@@ -89,4 +93,4 @@ executable demo
   build-depends:
       base >=4.7 && <5
     , real-time-inference
-  default-language: Haskell2010
+  default-language: GHC2021

@@ -1,7 +1,7 @@
 module Tutorial where
 
 import Concurrent
-import Control.Monad.Bayes.Class (MonadSample (normal))
+import Control.Monad.Bayes.Class (MonadDistribution (normal))
 import Example (Result (Result, latent, measured, particles), decayingIntegral, renderObjects)
 import FRP.Rhine.Gloss
 import Inference (params, particleFilter, SMCSettings (n))

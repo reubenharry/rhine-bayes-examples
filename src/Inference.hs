@@ -4,6 +4,7 @@ module Inference where
 
 import Control.Monad.Bayes.Class
 import Control.Monad.Bayes.Population
+import qualified Control.Monad.Bayes.Weighted as W
 import qualified Control.Monad.Trans.MSF as D
 import Data.Functor (($>))
 import Data.MonadicStreamFunction
@@ -14,7 +15,7 @@ import Numeric.Log
 data SMCSettings m where
   SMCSettings :: {n :: Int, resampler :: forall x. Population m x -> Population m x} -> SMCSettings m
 
-params :: MonadSample m => SMCSettings m
+params :: MonadDistribution m => SMCSettings m
 params = SMCSettings {n = 100, resampler = resampleSystematic}
 
 particleFilter ::
@@ -39,3 +40,7 @@ particleFilterDiscreteTime config msf = particleFilter'' $ spawn (n config) $> m
       let (currentPopulation, continuations) =
             unzip $ (\((b, sf), weight) -> ((b, weight), (sf, weight))) <$> bAndMSFs
       return (currentPopulation, particleFilter'' $ fromWeightedList $ return continuations)
+
+-- | Normalizes the weights in the population so that their sum is 1.
+normalize :: (Monad m) => Population m a -> Population m a
+normalize = hoist W.unweighted . extractEvidence

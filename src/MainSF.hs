@@ -7,7 +7,7 @@ import Control.Applicative (optional)
 import Control.Concurrent
 import Control.Lens
 import Control.Monad (forever)
-import Control.Monad.Bayes.Sampler (sampleIO)
+import Control.Monad.Bayes.Sampler.Strict (sampleIO)
 import Control.Monad.Morph
 import Data.Either (isRight)
 import Data.Functor (void)
