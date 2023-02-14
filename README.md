@@ -13,7 +13,7 @@ Both the simulation and the inference run **in real time**, so this gif is just 
 
 Install Haskell, using the installer, [GHCup](https://www.haskell.org/ghcup/).
 
-Build with the command `stack build` in the root directory, and run with `stack exec demo`. This will open a window with numbered options, which you can choose by entering a number on your keyboard and pressing Enter.
+Build and run with `cabal run demo`. This will open a window with numbered options, which you can choose by entering a number on your keyboard and pressing Enter.
 
 # The code
 
