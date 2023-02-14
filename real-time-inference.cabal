@@ -36,6 +36,7 @@ library
       Tutorial
       Util
       Convention
+      DiscreteConvention
   other-modules:
       Paths_real_time_inference
   hs-source-dirs:

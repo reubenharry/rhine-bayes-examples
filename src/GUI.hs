@@ -31,20 +31,6 @@ gui = proc userInput -> do
   returnA -< picture
 
 
-toggle :: Bool -> SignalFunction Deterministic Bool Bool
-toggle initialVal = safely $ forever do
-  try proc bool -> do
-    pos <- constM (pure initialVal) -< ()
-    throwOn' -< (bool, pos)
-    returnA -< pos
-  try $ not initialVal <$ timer 0.01
-  try proc bool -> do
-    pos <- constM (pure (not initialVal)) -< ()
-    throwOn' -< (bool, pos)
-    returnA -< pos
-  try $ initialVal <$ timer 0.01
-
-
 
 
 
@@ -89,7 +75,9 @@ multipleChoice = (^? events . ix 0 . _EventKey . _1 . _Char . to pure . _Show @I
 
 slider :: V2 Float -> Float -> SignalFunction Deterministic UserInput (Picture, Double)
 slider pos@(V2 p1 p2) range =
-  let cond = (\case (EventKey (MouseButton LeftButton) _ _ _) -> True; _ -> False)
+  let cond u = (case u ^.. events . ix 0 of 
+          [(EventKey (MouseButton LeftButton) _ _ _)] -> True
+          _ -> False) && (abs (u ^. mouse . _x - into @Double p1) < 10)
       toPicture v@(V2 x y) =
         let r = v ^. _2 . to (into @Double . (/ range) . (+ range / 2))
          in (
@@ -146,7 +134,7 @@ withFailure' b i pos = try proc userInput -> do
 
 withFailureGen cond b pos = try proc userInput -> do
   pos2 <- b pos -< userInput
-  let stop = userInput ^. events . to (any cond)
+  let stop = cond userInput
   throwOn' -< (stop, pos2)
   returnA -< pos2
 

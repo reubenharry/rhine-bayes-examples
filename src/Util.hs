@@ -9,7 +9,7 @@ module Util where
 import Control.Monad.Bayes.Class
 import Control.Monad.Fix (MonadFix (mfix))
 import FRP.Rhine
-import Control.Monad.Trans.MSF (ReaderT)
+import Control.Monad.Trans.MSF (ReaderT, performOnFirstSample)
 import Data.Kind (Type)
 import GHC.Base (Constraint)
 import Witch
@@ -23,6 +23,8 @@ import Control.Monad.Trans.Class (MonadTrans(lift))
 import Data.Tuple (swap)
 import Data.Fixed (mod')
 import Control.Lens (view)
+import Data.Void (Void)
+import Control.Monad (forever)
 
 ----
 -- helpful names for common types, for user-facing readability
@@ -107,6 +109,37 @@ safeNorm :: (Num v, VectorSpace v a, Eq v) => v -> a
 safeNorm 0 = 0
 safeNorm x = norm x
 
+toggle :: Bool -> SignalFunction Deterministic Bool Bool
+toggle initialVal = safely $ forever do
+  try proc bool -> do
+    pos <- constM (pure initialVal) -< ()
+    throwOn' -< (bool, pos)
+    returnA -< pos
+  try $ not initialVal <$ timer 0.01
+  try proc bool -> do
+    pos <- constM (pure (not initialVal)) -< ()
+    throwOn' -< (bool, pos)
+    returnA -< pos
+  try $ initialVal <$ timer 0.01
+
+
+
+
+bernoulliProcess :: (Time cl ~ Double, MonadDistribution m) => ClSF m cl a Bool
+bernoulliProcess = safely (switch False) where 
+  
+  switch :: (Time cl ~ Double, MonadDistribution m) => Bool -> ClSFExcept m cl a Bool Void
+  switch a = do 
+    x <- try proc _ -> do
+      -- b <- performOnFirstSample $ (constM . pure) <$> (bernoulli 0.5) -< () 
+      -- t <- sinceStart -< ()
+      b <- constM $ bernoulli 0.001 -< ()
+      throwOn' -< (b, not a)
+      returnA -< a
+    try $ x <$ timer 0.01
+    switch x
+
+
 ---
 -- reactive helper code
 ---
@@ -122,6 +155,7 @@ time = sinceStart
 
 observe :: (Monad m, MonadFactor m) => MSF m (Log Double) ()
 observe = arrM factor
+
 
 
 -----
