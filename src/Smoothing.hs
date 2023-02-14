@@ -19,7 +19,7 @@ import Util
 
 past :: SignalFunction Stochastic UserInput Picture
 past = proc userInput -> do
-  (sliderPic, r) <- slider (V2 (-400) 400) 60 -< userInput
+  (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
   actualPosition <- prior -< ()
   thePast <- shiftBy -< (actualPosition, floor $ r * 100 + 1)
   measuredPosition <- observationModel -< actualPosition

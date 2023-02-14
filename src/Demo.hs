@@ -130,12 +130,12 @@ posterior = proc (obs, showObs, std, stay) -> do
 
 demo :: SignalFunction Stochastic UserInput Picture
 demo = proc userInput -> do
-  (sliderPic, r) <- slider (V2 (-400) 400) 60 -< userInput
+  (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
   let std = 2 * r + 0.01
   (buttonPic, withObservation) <-
     button
       buttonParams
-        { buttonPos = V2 (-300) 400,
+        { buttonPos = V2 (-300) 300,
           buttonColor = red
         }
       -<
@@ -143,7 +143,7 @@ demo = proc userInput -> do
   (particlebuttonPic, showParticles) <-
     button
       buttonParams
-        { buttonPos = V2 (-200) 400,
+        { buttonPos = V2 (-200) 300,
           buttonColor = violet
         }
       -<
