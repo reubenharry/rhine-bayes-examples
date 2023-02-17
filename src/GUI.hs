@@ -77,7 +77,9 @@ slider :: V2 Float -> Float -> SignalFunction Deterministic UserInput (Picture, 
 slider pos@(V2 p1 p2) range =
   let cond u = (case u ^.. events . ix 0 of 
           [(EventKey (MouseButton LeftButton) _ _ _)] -> True
-          _ -> False) && (abs (u ^. mouse . _x - into @Double p1) < 10)
+          _ -> False) 
+          && (abs (u ^. mouse . _x - into @Double p1) < 10)
+          && (abs (u ^. mouse . _y - into @Double p2) < into @Double range)
       toPicture v@(V2 x y) =
         let r = v ^. _2 . to (into @Double . (/ range) . (+ range / 2))
          in (

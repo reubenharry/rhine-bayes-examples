@@ -8,11 +8,11 @@ import qualified MainSF
 
 import qualified Demo
 import qualified GUI
-import qualified Concurrent
 import qualified Smoothing
 import qualified Example
-import qualified Tutorial
 import qualified DiscreteConvention
+import qualified DoublyDiscreteConvention
+import qualified Decision
 
 
 main :: IO ()
@@ -25,5 +25,7 @@ main = MainSF.toGloss (MainSF.mainSF [
               (Demo.occlusion, "Occlusion", ""),
               (Demo.countDemoMain, "Discrete observation", ""),
               (Demo.fullLoopDemo, "Agent and World", ""),
-              (DiscreteConvention.main, "Convention", "")
+              (DiscreteConvention.main, "Convention", ""),
+              (DoublyDiscreteConvention.main, "Doubly Discrete Convention", ""),
+              (Decision.main, "Decision", "")
               ])

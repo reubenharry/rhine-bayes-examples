@@ -21,7 +21,6 @@ import GUI
 import Linear (V2, unangle, _x, _y)
 import Linear.Metric (Metric (..))
 import Linear.V2 (V2 (..))
-import Numeric.Log
 import Witch (into)
 import Prelude hiding (lines, Real, (.))
 import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy)

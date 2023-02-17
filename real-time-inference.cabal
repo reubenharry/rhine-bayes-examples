@@ -37,6 +37,8 @@ library
       Util
       Convention
       DiscreteConvention
+      DoublyDiscreteConvention
+      Decision
   other-modules:
       Paths_real_time_inference
   hs-source-dirs:

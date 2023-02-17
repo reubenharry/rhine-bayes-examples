@@ -25,6 +25,7 @@ import Data.Fixed (mod')
 import Control.Lens (view)
 import Data.Void (Void)
 import Control.Monad (forever)
+import Data.MonadicStreamFunction.InternalCore
 
 ----
 -- helpful names for common types, for user-facing readability
@@ -125,20 +126,26 @@ toggle initialVal = safely $ forever do
 
 
 
-bernoulliProcess :: (Time cl ~ Double, MonadDistribution m) => ClSF m cl a Bool
-bernoulliProcess = safely (switch False) where 
+bernoulliProcess :: (Time cl ~ Double, MonadDistribution m) => Bool -> Double -> ClSF m cl a Bool
+bernoulliProcess b i = safely (switch b i) where 
   
-  switch :: (Time cl ~ Double, MonadDistribution m) => Bool -> ClSFExcept m cl a Bool Void
-  switch a = do 
+  switch :: (Time cl ~ Double, MonadDistribution m) => Bool -> Double -> ClSFExcept m cl a Bool Void
+  switch a d = do 
     x <- try proc _ -> do
       -- b <- performOnFirstSample $ (constM . pure) <$> (bernoulli 0.5) -< () 
       -- t <- sinceStart -< ()
-      b <- constM $ bernoulli 0.001 -< ()
+      b <- constM $ bernoulli d -< ()
       throwOn' -< (b, not a)
       returnA -< a
     try $ x <$ timer 0.01
-    switch x
+    switch x d
 
+runNSteps (MSF msf) 1 input = 
+    fst <$> msf input
+runNSteps (MSF msf) n input = do
+    (mid, nextMsf) <- msf input
+    runNSteps nextMsf (n-1) input -- (n-1) mid
+      
 
 ---
 -- reactive helper code

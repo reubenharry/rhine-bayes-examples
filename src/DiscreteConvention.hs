@@ -2,11 +2,12 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
 module DiscreteConvention where
 
 import Linear (_y)
-import Control.Monad.Bayes.Class (MonadDistribution (normal, random, uniformD))
+import Control.Monad.Bayes.Class (MonadDistribution (normal, random, uniformD, bernoulli), condition)
 import Data.Vector ()
 import Example (Result (..), empirical, prior, drawBall)
 import FRP.Rhine.Gloss
@@ -18,7 +19,7 @@ import Linear.V2 (V2 (..))
 import Numeric.Log (Log (ln))
 import Prelude hiding (id, (.), until)
 import Control.Lens
-import Data.MonadicStreamFunction ( arrM, feedback )
+import Data.MonadicStreamFunction ( arrM )
 import Control.Arrow
 import Concurrent (UserInput)
 import Graphics.Gloss (Picture, blue, text)
@@ -27,17 +28,19 @@ import Data.Singletons.TH ( genSingletons )
 import Data.Maybe (fromMaybe)
 import GUI (ButtonConfig(..), button, buttonParams, slider)
 import FRP.Rhine.Gloss (red)
-import Control.Category
+import Control.Category ( Category((.), id) )
 import Data.Foldable (Foldable(fold))
 import Control.Monad.Trans.MSF.List (mapMSF)
 import FRP.Rhine.Gloss (translate)
 import FRP.Rhine.Gloss (scale)
-import Data.MonadicStreamFunction (MSF)
 import FRP.Rhine.Gloss (Color, rectangleSolid)
 import FRP.Rhine.Gloss (withAlpha)
 import Witch (into)
 import FRP.Rhine.Gloss (color)
-import Util
+import Util hiding (runNSteps)
+import Decision (stepper)
+import Data.MonadicStreamFunction.InternalCore
+import Debug.Trace (traceM)
 
 
 -- Use dependent types to make agent general across Agent One and Agent Two
@@ -73,7 +76,7 @@ data State = State
 $(makeLenses ''State)
 
 type World = SignalFunction Stochastic ((AgentAction One, AgentAction Two), (Double, Mode)) (State, Observation)
-type WorldFromPerspectiveOf i = AgentID i -> SignalFunction Stochastic (AgentAction i, (Double, Mode)) State
+type WorldFromPerspectiveOf i = AgentID i -> SignalFunction Stochastic (AgentAction i, (Double, Mode)) (State, Observation)
 type Agent (i :: AgentNumber) = AgentID i -> SignalFunction Stochastic (Observation, (Double, Mode)) (AgentAction i, Particles State)
 type AgentID i = Sing (i :: AgentNumber)
 
@@ -115,12 +118,14 @@ numParticles = 50
 
 
 movement :: SignalFunction Stochastic (AgentAction One, AgentAction Two) State
-movement = proc actions -> do
+movement = proc acts -> do
     pos <- Example.prior -< ()
-    lang <- constM (uniformD [RedMeansAboveBlueMeansBelow, BlueMeansAboveRedMeansBelow]) -< ()
+    -- lang <- constM (uniformD [RedMeansAboveBlueMeansBelow, BlueMeansAboveRedMeansBelow]) -< ()
+    lang <- (\case True -> RedMeansAboveBlueMeansBelow; False ->    BlueMeansAboveRedMeansBelow) <$> bernoulliProcess False 0.001 -< ()
+    -- delayedActions <- iPre (AgentAction Nothing, AgentAction Nothing) -< acts 
     returnA -< State
                     { _ball = pos,
-                    _actions = actions,
+                    _actions = acts,
                     _language = Language (lang)
                     }
 
@@ -135,36 +140,53 @@ observationModel = proc (state, std) -> do
 
 
 world :: World
-world = proc (actions, (std, _)) -> do
-    trueState <- movement -< actions
+world = proc (acts, (std, _)) -> do
+    trueState <- movement -< acts
     observation <- observationModel -< (trueState, std)
     returnA -< (trueState, observation)
 
 
 agentIPrior :: forall i . Depth -> WorldFromPerspectiveOf i
 agentIPrior (Depth 0) agentID = proc (action, (std, md)) -> do
-    -- ballX <- walk1D -< ()
-    -- ballY <- walk1D -< ()
-    V2 ballX ballY <- Example.prior -< ()
-    -- lang <- walk1D &&& walk1D -< ()
-    -- noise <- constM (normal 0 1) *** constM (normal 0 1) -< ((),())
+
+    ballPos@(V2 ballX ballY) <- Example.prior -< ()
     actionPrior1 <- constM (uniformD [red, blue]) -< ()
     actionPrior2 <- constM (uniformD [red, blue]) -< ()
     -- = Just $ V2 ballX ballY + uncurry V2 noise
-    lang <- (\case True -> RedMeansAboveBlueMeansBelow; False -> BlueMeansAboveRedMeansBelow) <$> bernoulliProcess -< ()
+    lang <- (\case True -> RedMeansAboveBlueMeansBelow; False -> BlueMeansAboveRedMeansBelow) <$> bernoulliProcess False 0.001 -< ()
     -- performOnFirstSample (uniformD $ (constM . pure) <$> [RedMeansAboveBlueMeansBelow, BlueMeansAboveRedMeansBelow]) -< ()
     -- let lang = RedMeansAboveBlueMeansBelow
+
+    (n1, n2) <- noise &&& noise -< std
+
+    actObsI <- arrM (\case
+        (bp, RedMeansAboveBlueMeansBelow)
+                | bp ^. _y > 0 -> (\case True -> Just red; False -> Just blue) <$> bernoulli 0.9
+                | bp ^. _y < 0 -> (\case True -> Just red; False -> Just blue) <$> bernoulli 0.1
+        (bp, BlueMeansAboveRedMeansBelow)
+                | bp ^. _y > 0 -> (\case True -> Just red; False -> Just blue) <$> bernoulli 0.1
+                | bp ^. _y < 0 -> (\case True -> Just red; False -> Just blue) <$> bernoulli 0.9
+        _ -> undefined
+        ) -< (ballPos, lang)
+
+    let observation = Observation {
+            _stateObs = ballPos + V2 n1 n2,
+            _action1Obs = AgentAction actObsI
+                 ,
+            _action2Obs = AgentAction actObsI
+            }    
+
     returnA -<
         (State {_ball = V2 ballX ballY, _actions =
             case agentID of
-                SOne -> (action, AgentAction (Just actionPrior1))
-                STwo -> (AgentAction (Just actionPrior2), action),
+                SOne -> (action, AgentAction (Just actionPrior2))
+                STwo -> (AgentAction (Just actionPrior1), action),
             _language = Language $ case agentID of 
                 SOne -> lang
                 STwo -> md
                 }
 
-        )
+        , observation)
 agentIPrior (Depth d) agentID = feedback (AgentAction (Just 0) :: AgentAction (Other i))
     proc (((action, (std, md)), otherAgentAction)) -> do
 
@@ -172,36 +194,36 @@ agentIPrior (Depth d) agentID = feedback (AgentAction (Just 0) :: AgentAction (O
             SOne -> (action, otherAgentAction)
             STwo -> (otherAgentAction, action)
         obs <- observationModel -< (state, std)
-        (newOtherAgentAction, ps) <- agentI (Depth (d-1)) (other agentID) -< (obs, (std, md))
-        returnA -< (state, newOtherAgentAction)
+        (newOtherAgentAction, _) <- agentI (Depth (d-1)) (other agentID) -< (obs, (std, md))
+        returnA -< ((state, obs), newOtherAgentAction)
 
 
 
 agentIPosterior :: Depth -> AgentID i -> SignalFunction (Stochastic & Unnormalized) (Observation, AgentAction i, (Double, Mode)) State
 agentIPosterior 0  i = proc (observation, agentIAction, (std, md)) -> do
-    statePrediction <- agentIPrior (Depth 0) i -< (agentIAction, (std, md))
+    (statePrediction, obsPrediction) <- agentIPrior (Depth 0) i -< (agentIAction, (std, md))
     observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
-    let utt = observation ^. actionObs (other i) . agentAction
+    case observation ^. actionObs i . agentAction of 
+        Just o -> arrM condition -< obsPrediction ^. actionObs i . agentAction == Just o
+        Nothing -> returnA -< ()
     
     
+    -- let utt = observation ^. actionObs (other i) . agentAction
+    -- let meaning = case (statePrediction ^. language . mode, utt) of 
+    --         (RedMeansAboveBlueMeansBelow, Just c) 
+    --                 | c==red -> statePrediction ^. ball . _y > 0
+    --                 | c==blue -> statePrediction ^. ball . _y < 0
+    --         (BlueMeansAboveRedMeansBelow, Just c) 
+    --                 | c==red -> statePrediction ^. ball . _y < 0
+    --                 | c==blue -> statePrediction ^. ball . _y > 0
+    --         _ -> True
+    -- observe -< if meaning then 1 else 0.1
+    -- -- arrM condition -< meaning 
     
-    let meaning = case (statePrediction ^. language . mode, utt) of 
-            (RedMeansAboveBlueMeansBelow, Just c) 
-                    | c==red -> statePrediction ^. ball . _y > 0
-                    | c==blue -> statePrediction ^. ball . _y < 0
-            (BlueMeansAboveRedMeansBelow, Just c) 
-                    | c==red -> statePrediction ^. ball . _y < 0
-                    | c==blue -> statePrediction ^. ball . _y > 0
-            _ -> True
-    -- meaning :: Maybe (V2 Double) <- arr (\(u,l) -> fmap (l `subtract`) u) -< (observation ^. actionObs (other i) . agentAction, lang)
-    -- case meaning of
-    --     Just k ->  observe -< normalPdf2D (statePrediction ^. ball) (std/2) k
-    --     Nothing -> returnA -< ()
-    observe -< if True then 1 else 0.1
     returnA -< statePrediction
 
 agentIPosterior depth i = proc (observation, agentIAction, (std, md)) -> do
-    statePrediction <- agentIPrior depth i -< (agentIAction, (std, md))
+    (statePrediction, obsPrediction) <- agentIPrior depth i -< (agentIAction, (std, md))
     observe -< normalPdf2D (statePrediction ^. ball) std (observation ^. stateObs)
     -- observe -< normalPdf2D
     --     (statePrediction ^. actions . agentLens (other i) . agentAction)
@@ -215,14 +237,28 @@ uniformRectangle = proc () -> do
     y <- constM random -< ()
     returnA -< V2 ((x - 0.5) * 5) ((y - 0.5) * 5)
 
+-- runNSteps _ 0 input = pure input 
+runNSteps (MSF msf) 1 input = 
+    fst <$> msf input
+runNSteps (MSF msf) n input = do
+    (mid, nextMsf) <- msf input
+    runNSteps nextMsf (n-1) input -- (n-1) mid
+    
 
 decisionModelAgentI :: Depth -> AgentID i ->
-    SignalFunction (Stochastic & Unnormalized) State (AgentAction i)
-decisionModelAgentI (Depth 0) i = proc state -> do
+    SignalFunction (Stochastic & Unnormalized) (State, (AgentAction i), (Double, Mode)) (AgentAction i)
+decisionModelAgentI (Depth 0) i = proc (state, prevAct, ps@(std, md)) -> do
 
     -- x <- arr expected -< state ^. ball
     -- return -< undefined
-    undefined -< undefined
+    -- nextAct <- constM (uniformD $ AgentAction <$> [Just red, Just blue]) -< ()
+    nextAct <- (\case True ->AgentAction (Just red); False -> AgentAction (Just blue)) <$> bernoulliProcess False 0.001 -< ()
+    (_,  nextStep) <- stepper (agentIPrior (Depth 0) i) -< (prevAct, (ps))
+    (futureState :: State, _) <- arrM id -< runNSteps nextStep 1 (nextAct, ps)
+    arrM condition -< futureState ^. actions . agentLens ( i) . agentAction == Just red
+    -- arrM traceM -< show (nextAct, futureState, case i of SOne -> 1; _ -> 2)
+    -- arrM condition -< nextAct ^. agentAction == Just red
+    returnA -< nextAct
 
     -- action <- AgentAction <$> Example.prior -< ()
     -- (outcome, _) <- agentIPrior (Depth 0) i -< action
@@ -230,8 +266,16 @@ decisionModelAgentI (Depth 0) i = proc state -> do
     -- --     SOne -> 
     -- observe -< normalPdf2D (outcome ^. actions . agentLens i . agentAction) 0.1 3
     -- returnA -< action
-decisionModelAgentI (Depth d) i = proc state -> do
+decisionModelAgentI (Depth d) i = proc (state, prevAct, ps) -> do
     -- action <- AgentAction <$> Example.prior -< ()
+
+    nextAct <- (\case True ->AgentAction (Just red); False -> AgentAction (Just blue)) <$> bernoulliProcess False 0.001 -< ()
+    (_,  nextStep) <- stepper (agentIPrior (Depth d) i) -< (prevAct, (ps))
+    (futureState :: State, _) <- arrM id -< runNSteps nextStep 2 (nextAct, ps)
+    arrM condition -< futureState ^. actions . agentLens (other i) . agentAction == Just red
+    -- arrM traceM -< show (nextAct, futureState, case i of SOne -> 1; _ -> 2)
+    -- arrM condition -< nextAct ^. agentAction == Just red
+    returnA -< nextAct
 
 
 
@@ -243,9 +287,9 @@ decisionModelAgentI (Depth d) i = proc state -> do
     -- -- observe -< normalPdf2D (outcome ^. actions . agentLens (other i) . agentAction) 0.001 (-3)
     -- -- observe -< normalPdf2D (outcome ^. ball) 0.1 (state ^. ball)
     -- returnA -< action
-    undefined -< undefined
+    -- undefined -< undefined
 
-    where
+    -- where
 
     -- makeObs :: V2 Double -> AgentID i -> Observation
     -- makeObs action SOne = Observation {_action1Obs = AgentAction action}
@@ -253,14 +297,19 @@ decisionModelAgentI (Depth d) i = proc state -> do
 
 
 agentI :: Depth -> Agent i
-agentI depth i = feedback (AgentAction $ Just 0) proc ((observation, std), act) -> do
+agentI depth i = feedback (AgentAction $ Just 0) proc ((observation, ps), act) -> do
 
 
 
-    belief <- particleFilter params {n=numParticles} (agentIPosterior depth i) -< (observation, act, std)
+    belief <- particleFilter params {n=numParticles} (agentIPosterior depth i) -< (observation, act, ps)
     belief' <- arrM empirical -< belief
-    nextAct <- case depth of
-        Depth 0 -> returnA -< 
+    -- nextAct <- particleFilter params{n=numParticles} $ decisionModelAgentI depth i -< (belief', act, ps)
+    -- nextAct' <- arrM empirical -< nextAct
+    
+    
+    
+    nextAct' <- case depth of
+        Depth i -> returnA -< 
             AgentAction case (belief' ^. language . mode, belief' ^. ball . _y .to (> 0) ) of 
                     (RedMeansAboveBlueMeansBelow, True) -> Just red
                     (RedMeansAboveBlueMeansBelow, False) -> Just blue
@@ -269,17 +318,20 @@ agentI depth i = feedback (AgentAction $ Just 0) proc ((observation, std), act) 
                     _ -> Nothing
             -- first (AgentAction . Just . (^. ball)) <$> belief
         _ -> undefined -< undefined
+
+
+
+
             -- particleFilter params{n=numParticles} (decisionModelAgentI depth i) -< belief'
     -- nextAct <- arr (Just . AgentAction . expected) -< first (^. agentAction) <$> action
-    -- nextAct <- arrM empirical -< actionDist
     -- let encoded = nextAct & agentAction . _Just %~ (+ belief' ^. language . coords)
-    returnA -<  ((nextAct, belief), nextAct)
+    returnA -<  ((nextAct', belief), nextAct')
 
 main :: SignalFunction Stochastic UserInput Picture
 main = feedback (AgentAction Nothing, AgentAction Nothing) proc (userInput, actions) -> do
 
     (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
-    let std = 2 * r + 0.01
+    let std = r + 0.01
     (buttonPic, buttonOn) <- button buttonParams{
         buttonPos=V2 (-400) (-300),
         buttonColor=red} -< userInput
