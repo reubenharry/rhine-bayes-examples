@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 
 module Concurrent where
 
@@ -12,16 +11,16 @@ import FRP.Rhine.Gloss
 import Util
 import Linear (V2 (..))
 import Witch (into)
+import GHC.Generics (Generic)
+import Data.Generics.Product (the)
 
 -- a data type to represent user input
 data UserInput = UserInput
   { _mouse :: V2 Double,
     _keys :: Set Key,
     _events :: [Event]
-  }
+  } deriving Generic
 
--- Macro to create lenses
-makeLenses ''UserInput
 
 -- a lofi converter from keyboard input to a string of characters
 getTextFromGloss :: SignalFunction Deterministic UserInput (Maybe Text)
@@ -32,17 +31,17 @@ getTextFromGloss = safely foo
         chars <- getCharsFromGloss -< userInput
         let predicateUp = any (\case (EventKey (SpecialKey KeyEnter) Up _ _) -> True; _ -> False)
         let predicateDown = any (\case (EventKey (SpecialKey KeyEnter) Down _ _) -> True; _ -> False)
-        throwOn' -< (predicateUp $ userInput ^. events, ())
+        throwOn' -< (predicateUp $ userInput ^. the @[Event], ())
         returnA
           -<
-            if predicateDown $ userInput ^. events
+            if predicateDown $ userInput ^. the @[Event]
               then Just $ T.concat $ map (\case Char c -> T.singleton c; _ -> "") chars
               else Nothing
       step (const $ pure (Nothing, ()))
 
 getCharsFromGloss :: SignalFunction Deterministic UserInput [Key]
 getCharsFromGloss = feedback mempty proc (userInput, oldText) -> do
-  let newLetters = (userInput ^. keys) \\ S.fromList oldText
+  let newLetters = (userInput ^. the @(Set Key)) \\ S.fromList oldText
   let newText = oldText <> S.toList newLetters
   returnA -< (newText, newText)
 
@@ -51,10 +50,10 @@ noInput = UserInput {_mouse = 0, _keys = mempty, _events = []}
 
 handle :: [Event] -> UserInput -> UserInput
 handle es =
-  (events .~ es)
+  (the @[Event] .~ es)
     . ( foldr (.) id . fmap \case
-          (EventKey key upOrDown _ _) -> (keys . contains key .~ (upOrDown == Down))
-          (EventMotion (x, y)) -> mouse .~ V2 (into @Double x) (into @Double y)
+          (EventKey key upOrDown _ _) -> (the @(Set Key) . contains key .~ (upOrDown == Down))
+          (EventMotion (x, y)) -> the @(V2 Double) .~ V2 (into @Double x) (into @Double y)
           _ -> id
       )
       es

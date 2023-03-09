@@ -9,6 +9,8 @@ import Linear (V2 (..))
 import Numeric.Log (Log)
 import Util
 import Control.Lens
+import Data.Generics.Product (the)
+import Witch (into)
 
 whiteNoise :: SignalFunction Stochastic () Double
 whiteNoise = constM (normal 0 1)
@@ -32,16 +34,28 @@ observationModel = proc latent -> do
 posteriorDistribution :: SignalFunction (Stochastic & Unnormalized) (V2 Double) (V2 Double)
 posteriorDistribution = proc obs -> do
   latent <- particlePosition2d -< ()
-  _ <- observe -< normalPdf2D obs 1 latent
+  observe -< (normalPdf2D obs 1 latent)
   returnA -< latent
 
 inferredPosteriorDistribution :: SignalFunction Stochastic (V2 Double) [(V2 Double, Log Double)]
 inferredPosteriorDistribution = particleFilter params posteriorDistribution
 
+
+
+
+
+
+
+
+
+
+
+
 demo1 :: SignalFunction Stochastic UserInput Picture
 demo1 = proc userInput -> do
-  let latent = userInput ^. mouse 
-  observations <- observationModel -< latent
-  beliefAboutState <- particleFilter params{n=200} posteriorDistribution -< observations
+    let latent = userInput ^. the @(V2 Double)
+  
+    observations <- observationModel -< latent
+    beliefAboutState <- inferredPosteriorDistribution -< observations
 
-  renderObjects -< Result {measured = observations, latent = latent, particles = beliefAboutState}
+    renderObjects -< Result {measured = observations, latent = latent, particles = beliefAboutState}

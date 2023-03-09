@@ -2,7 +2,7 @@
 
 module MainSF where
 
-import Concurrent (UserInput, getTextFromGloss, handle, keys, noInput)
+import Concurrent (UserInput, getTextFromGloss, handle, noInput)
 import Control.Applicative (optional)
 import Control.Concurrent
 import Control.Lens
@@ -22,6 +22,8 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import Witch (into)
 import Prelude hiding (until)
 import Util
+import Data.Set (Set)
+import Data.Generics.Product (the)
 
 eventClock :: RescaledClock GlossEventClockIO Double
 eventClock = RescaledClock
@@ -85,5 +87,5 @@ mainSF options = safely loop
 
     withQuitting sf = try proc (userInput, _) -> do
       out <- morphS (hoist lift) sf -< userInput
-      throwOn' -< (userInput ^. keys . contains (Char 'q'), text "")
+      throwOn' -< (userInput ^. the @(Set Key) . contains (Char 'q'), text "")
       returnA -< out

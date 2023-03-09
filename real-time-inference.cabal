@@ -84,6 +84,8 @@ library
     , transformers
     , vector
     , witch
+    , generic-data 
+    , generic-lens
   default-language: GHC2021
 
 executable demo
@@ -96,4 +98,20 @@ executable demo
   build-depends:
       base >=4.7 && <5
     , real-time-inference
+  default-language: GHC2021
+
+executable language
+  main-is: Language.hs
+  other-modules:
+      Paths_real_time_inference
+  hs-source-dirs:
+      app
+  ghc-options: -Wall -Wcompat -O2
+  build-depends:
+      base >=4.7 && <5
+    , real-time-inference
+    , rhine
+    , rhine-gloss
+    , monad-bayes
+    , mmorph
   default-language: GHC2021

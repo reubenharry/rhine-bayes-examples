@@ -1,6 +1,6 @@
 module Demo where
 
-import Concurrent (UserInput, keys, mouse)
+import Concurrent (UserInput)
 import Control.Category as C
 import Control.Lens
 import Control.Monad.Bayes.Class hiding (prior, posterior)
@@ -25,6 +25,8 @@ import Witch (into)
 import Prelude hiding (lines, Real, (.))
 import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy)
 import Util
+import Data.Set (Set)
+import Data.Generics.Product (the)
 
 type Real = Double
 
@@ -57,10 +59,10 @@ oscillator (V2 x y) = fmap (+ V2 x (y -2)) proc _ -> do
 
 moveWithArrows :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)
 moveWithArrows pos = proc userInput -> do
-  let velD = if userInput ^. keys . contains (Char 'd') then V2 1 0 else 0
-  let velA = if userInput ^. keys . contains (Char 'a') then V2 (-1) 0 else 0
-  let velW = if userInput ^. keys . contains (Char 'w') then V2 0 1 else 0
-  let velS = if userInput ^. keys . contains (Char 's') then V2 0 (-1) else 0
+  let velD = if userInput ^. the @(Set Key) . contains (Char 'd') then V2 1 0 else 0
+  let velA = if userInput ^. the @(Set Key) . contains (Char 'a') then V2 (-1) 0 else 0
+  let velW = if userInput ^. the @(Set Key) . contains (Char 'w') then V2 0 1 else 0
+  let velS = if userInput ^. the @(Set Key) . contains (Char 's') then V2 0 (-1) else 0
   fmap (+ pos) integral -< velD + velA + velW + velS
 
 moveInLines :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
@@ -192,7 +194,7 @@ occlusion = proc userInput -> do
       -<
         userInput
   let truePos = 0
-  let agentPos = userInput ^. mouse . _x . to (/ 150)
+  let agentPos = userInput ^. the @(V2 Double) . _x . to (/ 150)
   let barWidth = if withObservation then 0 else 1
   obs <- occlusionObsModel -< (into @Double barWidth, (truePos, agentPos))
   belief <- particleFilter params {n = 100} occlusionPosterior -< (agentPos, into @Double barWidth, obs)

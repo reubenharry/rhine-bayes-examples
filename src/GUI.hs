@@ -1,28 +1,30 @@
 -- exports some useful GUI related widgets, like buttons and sliders
 
 {-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module GUI where
 
 import Concurrent
+import Data.Generics.Sum.Any
+
+
 import Control.Lens hiding (from)
 import Control.Monad (forever)
 import FRP.Rhine.Gloss hiding (loop, norm, scale)
 import Linear
 import Witch (into)
 import Util
-
--- macros, feel free to ignore
-makeLenses ''Event
-makePrisms ''Event
-makeLenses ''Key
-makePrisms ''Key
-makeLenses ''KeyState
-makePrisms ''KeyState
+import Generic.Data
+import Data.Generics.Product (the)
 
 
+deriving instance Generic Event
+deriving instance Generic Key
+deriving instance Generic KeyState
 
 
 gui :: SignalFunction Stochastic UserInput Picture
@@ -66,20 +68,18 @@ multipleSwitch signals = safely . loop 0
 
 
 multipleChoice :: UserInput -> Maybe Int
-multipleChoice = (^? events . ix 0 . _EventKey . _1 . _Char . to pure . _Show @Int)
-
-
+multipleChoice = (^? the @[Event] . ix 0 . _As @"EventKey" . _1 . _As @"Char" . to pure . _Show @Int)
 
 
 -- signals :: SignalFunction Deterministic UserInput (V2 Double)
 
 slider :: V2 Float -> Float -> SignalFunction Deterministic UserInput (Picture, Double)
 slider pos@(V2 p1 p2) range =
-  let cond u = (case u ^.. events . ix 0 of 
+  let cond u = (case u ^.. the @[Event] . ix 0 of 
           [(EventKey (MouseButton LeftButton) _ _ _)] -> True
           _ -> False) 
-          && (abs (u ^. mouse . _x - into @Double p1) < 10)
-          && (abs (u ^. mouse . _y - into @Double p2) < into @Double range)
+          && (abs (u ^. the @(V2 Double) . _x - into @Double p1) < 10)
+          && (abs (u ^. the @(V2 Double) . _y - into @Double p2) < into @Double range)
       toPicture v@(V2 x y) =
         let r = v ^. _2 . to (into @Double . (/ range) . (+ range / 2))
          in (
@@ -100,7 +100,7 @@ stayStill pos = constM $ pure pos
 
 slide :: Arrow t => V2 Float -> Float -> p -> t UserInput (V2 Float)
 slide pos range _ = proc userInput -> do
-  let (V2 _ y) = (userInput ^. mouse . to (into @(V2 Float))) - pos
+  let (V2 _ y) = (userInput ^. the @(V2 Double) . to (into @(V2 Float))) - pos
       (upper, lower) = (range / 2, - range / 2)
   returnA -< V2 0 (min upper $ max lower y)
 
@@ -113,9 +113,9 @@ button :: ButtonConfig -> SignalFunction Deterministic UserInput (Picture, Bool)
 button config = let ButtonConfig size pos@(V2 xPos yPos) col initialVal = config 
   in proc userInput -> do
   
-    let mousePos = userInput ^. mouse . to (into @(V2 Float))
+    let mousePos = userInput ^. the @(V2 Double) . to (into @(V2 Float))
     let hover = norm (mousePos - pos) <= size
-    let click = userInput ^. events . to (any (\case (EventKey (MouseButton LeftButton) Down _ _) -> True; _ -> False))
+    let click = userInput ^. the @[Event] . to (any (\case (EventKey (MouseButton LeftButton) Down _ _) -> True; _ -> False))
     buttonOn <- toggle initialVal -< (hover && click)
     let circ colOutline colSolid
           | colSolid = color col $ rectangleSolid size size
