@@ -52,9 +52,9 @@ groundTruth =
 
 -- Using the slightly less user friendly version of the types here, for technical reasons
 oscillator :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
-oscillator (V2 x y) = fmap (+ V2 x (y -2)) proc _ -> do
-  xAxis <- Example.stochasticOscillator 0 2 -< 1
-  yAxis <- Example.stochasticOscillator 2 0 -< 1
+oscillator (V2 x y) = fmap (+ V2 x (y )) proc _ -> do
+  xAxis <- Example.stochasticOscillator 0 1 -< 1
+  yAxis <- Example.stochasticOscillator 1 0 -< 1
   returnA -< V2 xAxis yAxis
 
 moveWithArrows :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)

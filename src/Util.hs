@@ -26,6 +26,7 @@ import Control.Lens (view)
 import Data.Void (Void)
 import Control.Monad (forever)
 import Data.MonadicStreamFunction.InternalCore
+import qualified Control.Monad.Trans.MSF.Reader as MSF
 
 ----
 -- helpful names for common types, for user-facing readability
@@ -177,3 +178,40 @@ instance MonadDistribution m => MonadDistribution (GlossConcT m) where
   random = lift random
 
   
+
+
+
+{- | Step the signal function into the future with the given simulation durations,
+and return its result after these steps.
+For example, @clsf' = 'forecastWith' [(a1, td1), (a2, td2), (a3, td3)] clsf@ will,
+at each step of @clsf'@, perform four steps of clsf:
+First one to the current timestamp @t@, then to @t + td1@,
+then @t + td1 + td2@ and so on.
+After arriving at @t + td1 + td2 + td3@ (and having executed all side effects until there),
+it will return the final output @b@, and the state of @clsf@ is reset to time @t@.
+-}
+forecastWith ::
+  (Monad m, TimeDomain (Time cl)) =>
+  -- | The time span to delay the signal
+  [(a, Diff (Time cl), Tag cl)] ->
+  ClSF m cl a b ->
+  ClSF m cl a b
+forecastWith inputs = MSF.readerS . forecastWith' inputs . MSF.runReaderS
+  where
+    forecastWith' ::
+      (Monad m, TimeDomain (Time cl)) =>
+      [(a, Diff (Time cl), Tag cl)] ->
+      MSF m (TimeInfo cl, a) b ->
+      MSF m (TimeInfo cl, a) b
+    forecastWith' [] clsf = clsf
+    forecastWith' inputs@((a', td, tag) : laterInputs) clsf = forecastWith' laterInputs $ MSF $ \(timeInfo, a) -> do
+      (_, msf') <- unMSF clsf (timeInfo, a)
+      let
+        timeInfo' = TimeInfo
+          { sinceLast = td
+          , sinceInit = sinceInit timeInfo `add` td
+          , absolute = absolute timeInfo `addTime` td
+          , tag
+          }
+      (b, _) <- unMSF msf' (timeInfo', a')
+      return (b, forecastWith' inputs msf')

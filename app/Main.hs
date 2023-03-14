@@ -14,12 +14,14 @@ import qualified DiscreteConvention
 import qualified DoublyDiscreteConvention
 import qualified Decision
 import qualified Tutorial
+import qualified Convention
 
 
 main :: IO ()
 main = MainSF.toGloss (MainSF.mainSF [
             --   (GUI.gui, "GUI", ""),
-            --   (Demo.demo, "Particle tracking", ""),
+              (Demo.demo, "Particle tracking", ""),
+              (Convention.main, "Convention: simple", ""),
             -- --   (Concurrent.gloss, "Follow mouse", "todo"),
             --   (Smoothing.past, "Past smoothed", ""),
             --   (Example.main, "Posterior predictive", ""),

@@ -46,7 +46,7 @@ toGloss sf = do
       x <- T.getLine
       swapMVar mvar x
 
-  flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1724, 1260) (10, 10)} $
+  flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)} $
     tagS
       @@ eventClock
         >-- collect -@- glossConcurrently
@@ -80,7 +80,7 @@ mainSF options = safely loop
       (if isPicture then Left else Right) <$> decimal
 
     displayOptions =
-      translate (-400) 400 $
+      translate (-400) 300 $
         ifoldMap
           (\i str -> translate 0 (-30 * fromIntegral i) $ scale 0.2 0.2 $ text (show i <> ": " <> str))
           $ options ^.. traverse . _2

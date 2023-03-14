@@ -20,7 +20,7 @@ import Control.Lens
 import Data.MonadicStreamFunction ( arrM, feedback )
 import Control.Arrow
 import Concurrent (UserInput)
-import Graphics.Gloss (Picture)
+import Graphics.Gloss (Picture, line)
 import Data.Singletons
 import Data.Singletons.TH ( genSingletons )
 import Data.Maybe (fromMaybe)
@@ -88,7 +88,7 @@ other STwo = SOne
 newtype Depth = Depth {_depth :: Int}  deriving (Eq, Show, Num) via Int
 
 std :: Double
-std = 2.0
+std = 0.25
 
 noise :: SignalFunction Stochastic a Double
 noise = constM (normal 0 std)
@@ -134,7 +134,7 @@ agentIPrior (Depth 0) agentID = proc action -> do
     -- ballY <- walk1D -< ()
     V2 ballX ballY <- Example.prior -< ()
     lang <- walk1D &&& walk1D -< ()
-    noise <- constM (normal 0 1) *** constM (normal 0 1) -< ((),())
+    noise <- constM (normal 0 0.1) *** constM (normal 0 0.1) -< ((),())
     let actionPrior = Just $ V2 ballX ballY + uncurry V2 noise
     returnA -<
         (State {_ball = V2 ballX ballY, _actions =
@@ -177,7 +177,7 @@ agentIPosterior 0  i = proc (observation, agentIAction) -> do
     let meaning = fmap ((statePrediction ^. language . coords) `subtract`) utt
     -- meaning :: Maybe (V2 Double) <- arr (\(u,l) -> fmap (l `subtract`) u) -< (observation ^. actionObs (other i) . agentAction, lang)
     case meaning of
-        Just k ->  observe -< normalPdf2D (statePrediction ^. ball) (std/2) k
+        Just k ->  observe -< normalPdf2D (statePrediction ^. ball) (std*2) k
         Nothing -> returnA -< ()
     returnA -< statePrediction
 
@@ -252,7 +252,7 @@ main :: SignalFunction Stochastic UserInput Picture
 main = feedback (AgentAction Nothing, AgentAction Nothing) proc (userInput, actions) -> do
 
     (buttonPic, buttonOn) <- button buttonParams{
-        buttonPos=V2 (-300) 400,
+        buttonPos=V2 (-200) 200,
         buttonColor=red} -< userInput
     (trueState, trueObservation) <- world -< actions
 
@@ -269,24 +269,26 @@ main = feedback (AgentAction Nothing, AgentAction Nothing) proc (userInput, acti
 
     pic2 <- renderObjects green -< Result {
         measured = 1000,
-        latent = newActions ^. _1 . agentAction . to (fromMaybe 1000),
+        latent = 1000, -- newActions ^. _1 . agentAction . to (fromMaybe 1000),
         particles =  first (^. ball) <$>  beliefAgent1
         }
 
     pic3 <- renderObjects yellow -< Result {
         measured = 1000,
-        latent = newActions ^. _2 . agentAction . to (fromMaybe 1000),
+        latent = 1000, -- newActions ^. _2 . agentAction . to (fromMaybe 1000),
         particles =  first (^. ball) <$> beliefAgent2
         }
 
     pic4 <- fold <$> mapMSF drawParticle -< (\(x,y) -> (x,y,green)) . first (^. language . coords) <$> beliefAgent1
     pic5 <- fold <$> mapMSF drawParticle -< (\(x,y) -> (x,y,yellow)) . first (^. language . coords) <$> beliefAgent2
 
-    let languagePic = translate 400 300 $ scale 0.5 0.5 (pic4 <> pic5)
+    let languagePic = translate 300 0 $ scale 0.5 0.5 (pic4 <> pic5)
 
 
-    returnA -< (pic1
-        <> pic2 <> pic3 <> languagePic <> buttonPic, newActions)
+    returnA -< (
+            translate (-300) 0 (pic1 <> pic2 <> pic3) 
+            <> line [(0, 1000), (0,-1000)]
+            <> languagePic <> buttonPic, newActions)
 
 
 
