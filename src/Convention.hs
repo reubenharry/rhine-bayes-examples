@@ -84,6 +84,12 @@ other :: AgentID i -> AgentID (Other i)
 other SOne = STwo
 other STwo = SOne
 
+
+one :: SAgentNumber 'One
+one = SOne
+two :: SAgentNumber 'Two
+two = STwo
+
 -- depth of mutual recursion between Agent One and Agent Two
 newtype Depth = Depth {_depth :: Int}  deriving (Eq, Show, Num) via Int
 

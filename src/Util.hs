@@ -43,18 +43,18 @@ type InputOutput = MonadIO
 type Deterministic = Monad
 
 type Feedback = MonadFix
-
 type SignalFunction constraint a b =
   forall m cl.
   (constraint m, Time cl ~ Double) =>
   MSF
-    ( ReaderT
-        (TimeInfo cl)
-        m
-    )
-    a
-    b
-
+  ( ReaderT
+  (TimeInfo cl)
+  m
+  )
+  a
+  b
+  
+type System m a b = SignalFunction m a b
 type (&) :: ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint)
 
 type (&) c1 c2 m = (c1 m, c2 m)
