@@ -2,8 +2,7 @@
 
 import Prelude hiding ((.)) -- don't expose standard definition of `.`
 import Control.Category
-import Control.Arrow (Arrow, returnA)
-import FRP.Rhine (Arrow(arr, first), accumulateWith)
+import Control.Arrow (Arrow(arr, first), returnA)
 import GHC.Base (Type)
 
 
