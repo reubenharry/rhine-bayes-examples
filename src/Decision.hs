@@ -39,7 +39,7 @@ agent = proc _ -> do
     let utility = 
         -- normalPdf (1.25 * pi) 0.1 dir
         -- negate $ Exp $ log $ pos `Linear.dot` vel
-            Exp $ log $ Linear.norm futurePos
+            Exp $ log $ Linear.norm pos
     arrM traceM -< show (pos, futurePos, vel, utility)
     observe -< 1 / utility
     returnA -< vel

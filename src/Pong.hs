@@ -28,7 +28,7 @@ import Control.Monad.Bayes.Sampler.Strict
 import Control.Monad.Morph
 import Inference hiding (V2)
 import Control.Monad.Bayes.Population (resampleMultinomial)
-import Util
+import Util hiding (Particles)
 import Witch (into)
 import Control.Lens
 import Control.Monad (forever)

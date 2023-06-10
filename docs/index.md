@@ -8,14 +8,16 @@ These are precisely the elements that make it tractable to build models of real-
 
 ## Evolution of convention
 
+
+
 ```mermaid
 flowchart LR
 
-  subgraph Agent[ Agent 1, Depth=0 ]
+  subgraph Agent[ Agent A, Depth=0 ]
     direction TB
     subgraph PF[Particle Filter]
         direction LR
-        AgentSub2((Model of world))
+        AgentSub2{Model of world}
         Convention2((Convention))
     end
     PF -->|Belief about State | CA((Decide))
@@ -23,11 +25,11 @@ flowchart LR
   end
   
   
-  subgraph Agent2[ Agent 2, Depth=0 ]
+  subgraph Agent2[ Agent B, Depth=0 ]
     direction TB
     subgraph PF2[Particle Filter]
         direction LR
-        AgentSub((Model of world))
+        AgentSub{Model of world}
         Convention((Convention))
     end
     PF2 -->|Belief about State | CA2((Decide))
@@ -36,15 +38,36 @@ flowchart LR
 
   subgraph World
     direction BT
-    Evolve -->|State| Render((Render))
+    Evolve -->|State : Position, Action A, Action B| Render((Render))
   end 
 
-  Render -->|Observation,Signal| PF
-  CA -->|Signal| Evolve((Evolve))
+  Render --> PF
+  CA -->|Action A| Evolve((Evolve))
   
-  Render -->|Observation,Signal| PF2
-  CA2 -->|Signal| Evolve((Evolve))
+  Render --> PF2
+  CA2 -->|Action B| Evolve((Evolve))
 ```
+
+
+```mermaid
+flowchart LR
+
+  
+  
+  
+  
+
+  subgraph Model of World
+    direction BT
+    Evolve -->|State : Position, Action A, Action B| Render((Render))
+  end 
+
+  Render --> Observation
+  Agent -->|Action| Evolve((Evolve))
+  
+```
+
+
 
 A simple but interesting consequence of this model is that conventions align. That is, the convention that agents 1 and 2 infer tend to converge.
 

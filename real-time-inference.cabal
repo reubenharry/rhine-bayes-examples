@@ -30,13 +30,18 @@ library
       Example
       GUI
       Inference
+      MCMC
       MainSF
       Smoothing
       Switch
       Tutorial
       Util
       Convention
-      DiscreteConvention
+      SimpleConvention
+      FixedConvention
+      CausalInf
+      Control
+      -- DiscreteConvention
       DoublyDiscreteConvention
       Decision
       Pong

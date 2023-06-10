@@ -21,6 +21,7 @@ import Numeric.Log
 import Witch (into)
 import Prelude hiding (Real)
 import Util
+import qualified Debug.Trace as Debug
 
 std :: Double
 std = 1
@@ -97,6 +98,7 @@ walk1D = proc _ -> do
 decayingIntegral :: (Monad m, VectorSpace c (Diff (Time cl))) => 
   Diff (Time cl) -> ClSF m cl c c
 decayingIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
+
 
 -- | Harmonic oscillator with white noise
 stochasticOscillator ::
@@ -209,7 +211,9 @@ drawBall = proc (V2 x y, width, theColor) -> do
 
 drawParticle :: Monad m => MSF m (Position, Log Double) Picture
 drawParticle = proc (position, probability) -> do
-  drawBall -< (position, 0.1, withAlpha (double2Float $ exp $ 0.2 * ln probability) violet)
+  drawBall -< (position, 0.1, withAlpha ( (double2Float $ exp $ 0.2 * ln probability)) violet)
+
+traceIt x = Debug.trace (show x) x
 
 data Result = Result
   { --   estimate :: Position

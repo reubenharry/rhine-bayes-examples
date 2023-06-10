@@ -43,7 +43,7 @@ import Control.Category ( Category((.), id) )
 import Data.Foldable (Foldable(fold))
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Witch (into)
-import Util
+import Util hiding (Particles)
 import Decision (stepper)
 import Data.MonadicStreamFunction.InternalCore
 import Debug.Trace (traceM, trace)
@@ -54,7 +54,7 @@ import GHC.IO (unsafePerformIO)
 import Control.Monad.Trans.MSF (performOnFirstSample)
 import qualified Data.Vector as V
 import Control.Monad.Bayes.Population (Population, runPopulation)
-import DiscreteConvention ()
+-- import DiscreteConvention ()
 
 
 -- interesting strong effect: the output from the interlocutor must be consistent with the output from the modelled interlocutor: but is this currently enforced??
@@ -102,8 +102,6 @@ type UserData = Bool
 -- a simple macro, not important
 $(makeLenses ''State)
 
-type (>-->) a b = SignalFunction Stochastic a b
-type (>-/->) a b = SignalFunction (Stochastic & Unnormalized) a b
 
 type AgentID i = Sing (i :: AgentNumber)
 type World = ((AgentAction One, AgentAction Two), UserData) >--> (State, Observation)

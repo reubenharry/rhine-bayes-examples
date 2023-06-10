@@ -16,12 +16,32 @@ import GUI (slider)
 import Inference
 import Linear (V2 (..))
 import Util 
+import Control.Category 
+import Prelude hiding ((.))
+
+pastExample :: SignalFunction Stochastic UserInput Picture
+pastExample = proc _ -> do
+  
+  actualPosition <- prior -< ()
+  measuredPosition <- observationModel -< actualPosition
+  samples <- particleFilter params (shift 50 . posterior) -< measuredPosition
+  
+  
+  renderObjects
+      -<
+        Result
+          { particles = samples,
+            measured = 1000,
+            latent = actualPosition
+          }
+
+
 
 past :: SignalFunction Stochastic UserInput Picture
 past = proc userInput -> do
   (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
   actualPosition <- prior -< ()
-  thePast <- shiftBy -< (actualPosition, floor $ r * 100 + 1)
+  thePast <- shift 50 -< actualPosition
   measuredPosition <- observationModel -< actualPosition
   samples <- particleFilter params (posterior *** returnA >>> shiftBy) -< (measuredPosition, floor $ r * 100 + 1)
   pic <-

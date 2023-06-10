@@ -9,14 +9,13 @@ module Util where
 import Control.Monad.Bayes.Class
 import Control.Monad.Fix (MonadFix (mfix))
 import FRP.Rhine
-import Control.Monad.Trans.MSF (ReaderT, performOnFirstSample)
+import Control.Monad.Trans.MSF (ReaderT)
 import Data.Kind (Type)
 import GHC.Base (Constraint)
 import Witch
 import Linear (V2, _x, _y)
 import Linear.V2 (V2(..))
 import qualified Linear as L
-import Numeric.Log (Log (ln))
 import Control.Monad.Bayes.Sampler.Strict (SamplerIO, sampleIO)
 import FRP.Rhine.Gloss (GlossConcT)
 import Control.Monad.Trans.Class (MonadTrans(lift))
@@ -58,6 +57,16 @@ type System m a b = SignalFunction m a b
 type (&) :: ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint) -> ((Type -> Type) -> Constraint)
 
 type (&) c1 c2 m = (c1 m, c2 m)
+
+type (>-->) a b = SignalFunction Stochastic a b
+type (>-/->) a b = SignalFunction (Stochastic & Unnormalized) a b
+type (>-&->) a b = SignalFunction (Stochastic & Feedback) a b
+
+-- a population of particles
+type Particles a = [(a, Log Double)]
+
+constantly :: Monad m => (a -> m b) -> MSF m a b
+constantly = arrM
 
 -----
 --- numerical helper code

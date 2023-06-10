@@ -1,6 +1,6 @@
 module Demo where
 
-import Concurrent (UserInput)
+import Concurrent
 import Control.Category as C
 import Control.Lens
 import Control.Monad.Bayes.Class hiding (prior, posterior)
@@ -23,7 +23,7 @@ import Linear.Metric (Metric (..))
 import Linear.V2 (V2 (..))
 import Witch (into)
 import Prelude hiding (lines, Real, (.))
-import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy)
+import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy, drawBall)
 import Util
 import Data.Set (Set)
 import Data.Generics.Product (the)
@@ -52,7 +52,7 @@ groundTruth =
 
 -- Using the slightly less user friendly version of the types here, for technical reasons
 oscillator :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
-oscillator (V2 x y) = fmap (+ V2 x (y )) proc _ -> do
+oscillator (V2 x y) = fmap (+ V2 x y) proc _ -> do
   xAxis <- Example.stochasticOscillator 0 1 -< 1
   yAxis <- Example.stochasticOscillator 1 0 -< 1
   returnA -< V2 xAxis yAxis
@@ -219,6 +219,11 @@ fullLoopPrior = proc ang -> do
   statePos <- moveAwayFrom -< agentPos
   returnA -< (4 + agentPos, statePos)
 
+fullLoopPriorUser :: SignalFunction Stochastic (V2 Double) (V2 Double, V2 Double)
+fullLoopPriorUser = proc agentPos -> do
+  statePos <- moveAwayFrom -< agentPos
+  returnA -< (agentPos, statePos)
+
 fullLoopObservationModel :: SignalFunction Stochastic (V2 Double, V2 Double) (V2 Double, V2 Double)
 fullLoopObservationModel = proc (agentPos, statePos) -> do
   (x, y) <- (noise &&& noise) -< 0.5
@@ -249,6 +254,20 @@ fullLoopDemo = feedback ((0, 0), Angle 0) proc (_, (observation, action)) -> do
   pic2 <- renderObjects -< Result {particles = particles, latent = snd trueState, measured = snd newObservation}
   let pic = pic2 <> drawTriangle (fst trueState, dir, 0.2, red)
   returnA -< (pic, (newObservation, newAction))
+
+fullLoopDemoUser :: SignalFunction Stochastic UserInput Picture
+fullLoopDemoUser = proc userInput -> do
+  let mousePos = userInput ^. the @(V2 Double)
+  statePos <- moveAwayFrom -< mousePos
+  pic2 <- renderObjects -< Result {particles = [], latent = statePos, measured = 1000}
+  b <- drawBall -< (mousePos / 150, 0.2, red)
+  let pic = pic2 <> b
+  returnA -< pic
+
+fullLoopAgentUser :: SignalFunction Stochastic UserInput (V2 Double, [a])
+fullLoopAgentUser = proc userInput -> do
+
+  returnA -< (userInput ^. the @(V2 Double), [])
 
 countDemoPrior :: SignalFunction Stochastic () Position
 countDemoPrior = Smoothing.prior
