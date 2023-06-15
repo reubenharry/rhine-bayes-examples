@@ -49,17 +49,27 @@ import Control.Monad.Trans.MSF (performOnFirstSample)
 import Demo (oscillator)
 import Linear.V
 
+---
+-- quick syntax primer
+---
 
 
+newtype A where
+  B :: {unB :: Double} -> A
+-- means that 
+-- 1. A is a type
+-- 2. B is a function of type (Double -> A)
+-- 3. unB is a function of type (A -> Double)
+-- Note: A and Double are isomorphic types, but distinguished by the type checker. (B 4) + 4 won't typecheck.
 
--- core feature is that the level-zero agent mistakenly believes the convention to be part of the model of nature
--- interesting strong effect: the output from the interlocutor must be consistent with the output from the modelled interlocutor: but is this currently enforced??
 
 -- Use dependent types to make agent general across Agent One and Agent Two
 data AgentNumber = One | Two
 genSingletons [''AgentNumber]
 
-newtype AgentAction (i :: AgentNumber) = AgentAction {_agentAction :: V2 Double} deriving Show
+newtype AgentAction (i :: AgentNumber) where
+  AgentAction :: {_agentAction :: V2 Double} -> AgentAction i
+  deriving Show
 $(makeLenses ''AgentAction)
 
 data State where
@@ -100,6 +110,11 @@ one :: SAgentNumber 'One
 one = SOne
 two :: SAgentNumber 'Two
 two = STwo
+
+pattern AgentOne :: SAgentNumber 'One
+pattern AgentOne = SOne
+pattern AgentTwo :: SAgentNumber 'Two
+pattern AgentTwo = STwo
 
 agentLens :: AgentID i -> Lens' (AgentAction One, AgentAction Two) (AgentAction i)
 agentLens i = case i of
@@ -218,6 +233,10 @@ agentIPosterior depth agentID = proc ((observation, convention), agentIAction) -
     observe -< normalPdf2D action 0.5 predictedAction
     returnA -< statePred
 
+agentIDecision :: Depth -> AgentID i -> (State, Convention) >-/-> AgentAction i
+agentIDecision _ _ = proc (state, convention) -> do 
+    returnA -< AgentAction $ state ^. ball + convention ^. coords
+
 agent :: Depth -> AgentID i -> (Observation, Convention) >-/-> (AgentAction i, State)
 agent 0 _ = proc (obs, convention) -> do
     s <- arr ((/10) . sum . take 10) . accumulateWith (:) [] -< obs ^. stateObs
@@ -225,7 +244,8 @@ agent 0 _ = proc (obs, convention) -> do
     returnA -< (AgentAction (s + convention ^. coords), state)
 agent depth i = feedback (AgentAction 0) proc input@((_, convention), _) -> do
     state <- agentIPosterior depth i -< input
-    let nextAct = AgentAction $ state ^. ball + convention ^. coords
+    nextAct <- agentIDecision depth i -< (state, convention) 
+    -- let nextAct = AgentAction $ state ^. ball + convention ^. coords
     returnA -<  ((nextAct, state), nextAct)
 
 joint :: Depth -> AgentID i -> Observation >-/-> ((AgentAction i, State), Convention)
@@ -350,3 +370,7 @@ uniformRectangle = proc () -> do
     x <- constM random -< ()
     y <- constM random -< ()
     returnA -< V2 ((x - 0.5) * 5) ((y - 0.5) * 5)
+
+
+-- core feature is that the level-zero agent mistakenly believes the convention to be part of the model of nature
+-- interesting strong effect: the output from the interlocutor must be consistent with the output from the modelled interlocutor: but is this currently enforced??

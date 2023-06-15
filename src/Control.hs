@@ -15,6 +15,9 @@ import Data.Foldable (Foldable(fold))
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Decision (stepper)
 import qualified Smoothing
+import Data.MonadicStreamFunction.InternalCore (MSF(MSF))
+import Control.Monad.Bayes.Enumerator (expectation)
+import qualified Data.Vector as V
 
 type Position = Double
 
@@ -38,23 +41,27 @@ systemUnlooped = proc (a, p) -> do
     returnA -< let newp = p+0.01*a in (newp, newp)
 
 agent :: System (Stochastic & Unnormalized) Position Action
-agent = feedback 0 proc (pos, oldAction) -> do
+agent = proc pos -> do
     action <- walk1D -< ()
     -- constM $ uniformD [-1, 1] -< ()
-    olderAction <- Smoothing.shift 100 -< action
-    newPos <- feedback 0 systemUnlooped -< olderAction
+    (newPos, msf) <- stepper (feedback 0 systemUnlooped) -< pos
+    next <- arrM id -< runNSteps msf 1 action
+    -- olderAction <- Smoothing.shift 100 -< action
+    -- newPos <- feedback 0 systemUnlooped -< olderAction
     -- altNeuPos <- Smoothing.shift 100 -< newPos
     -- futurePos :: Double <- arrM id -< runNSteps steps 5 action
-    let mass = ( Exp $ log $ 1/((newPos - 2)**2))
+    let mass = ( Exp $ log $ 1/((next - 2)**2))
     observe -< mass
-    arrM traceM -< show  mass
-    returnA -< (action, action)
+    arrM traceM -< show  (mass, newPos, pos)
+    returnA -< (action)
 
 mainGloss :: System Stochastic UserInput Picture
 mainGloss = feedback (-1) proc (_, oldAction) -> do
     pos <- feedback 0 systemUnlooped -< oldAction
     newActions <- particleFilter params{n=100} agent -< pos
+    -- newAction <- arr (\x -> sum x / fromIntegral (length x)) -< fst <$> newActions
     newAction <- arrM empirical -< newActions
     pic <- drawBall -< (V2 pos 0, 0.2, red)
+    pic3 <- drawBall -< (V2 2 0, 0.1, red)
     pic2 <- fold <$> mapMSF drawParticle -< first (`V2` 0) <$> newActions
-    returnA -< (pic <> pic2, newAction)
+    returnA -< (pic <> pic2 <> pic3, newAction)
