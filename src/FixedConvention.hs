@@ -6,7 +6,7 @@
 module FixedConvention where
 
 
-import Control.Monad.Bayes.Class (MonadDistribution (normal, random))
+import Control.Monad.Bayes.Class (MonadDistribution (normal, random), factor)
 import Data.Vector ()
 import Example ( Result (..), empirical, prior, drawBall, decayingIntegral)
 import FRP.Rhine.Gloss
@@ -31,7 +31,7 @@ import Control.Lens
 import Data.MonadicStreamFunction ( arrM, feedback, MSF, accumulateWith )
 import Control.Arrow ( returnA, Arrow(first, (&&&), arr) )
 import Concurrent (UserInput)
-import Graphics.Gloss (Picture, line)
+import Graphics.Gloss (Picture, line, black)
 import Data.Singletons ( Sing )
 import Data.Singletons.TH ( genSingletons )
 import Control.Category ( Category((.)) )
@@ -48,6 +48,7 @@ import Util
 import Control.Monad.Trans.MSF (performOnFirstSample)
 import Demo (oscillator)
 import Linear.V
+import Control.Monad (join)
 
 ---
 -- quick syntax primer
@@ -61,6 +62,11 @@ newtype A where
 -- 2. B is a function of type (Double -> A)
 -- 3. unB is a function of type (A -> Double)
 -- Note: A and Double are isomorphic types, but distinguished by the type checker. (B 4) + 4 won't typecheck.
+
+
+data CustomState where
+    MakeState :: {getInt :: Int, getDouble :: Double} -> CustomState
+
 
 
 -- Use dependent types to make agent general across Agent One and Agent Two
@@ -211,44 +217,58 @@ world = proc actions -> do
 ---- the agent
 ------------------
 
-agentIPrior :: forall i . Depth -> AgentID i -> (AgentAction i, Convention) >--> State
+agentIPrior :: forall i . Depth -> AgentID i -> (AgentAction i, Convention) >--> (State, Particles State)
 agentIPrior d agentID = feedback (AgentAction 0 :: AgentAction (Other i))
     proc ((action, convention), otherAgentAction) -> do
         state <- stateModel -< case agentID of
             SOne -> (action, otherAgentAction)
             STwo -> (otherAgentAction, action)
         obs <- observationModel -< state
-        (newOtherAgentAction, _) <-
-            constantly empirical .
+        newOtherAgentAction_and_otherAgentBelief <-
             particleFilter params{n=2} (agent (d-1) (other agentID))
             -< (obs, convention)
-        returnA -< (state, newOtherAgentAction)
+        (newOtherAgentAction, _) <- constantly empirical -< newOtherAgentAction_and_otherAgentBelief
+        returnA -< ((state, first (fst . snd) <$> newOtherAgentAction_and_otherAgentBelief), newOtherAgentAction)
 
-agentIPosterior :: Depth -> AgentID i -> ((Observation, Convention), AgentAction i) >-/-> State
+
+agentIPosterior :: Depth -> AgentID i -> ((Observation, Convention), AgentAction i) >-/-> (State, Particles State)
 agentIPosterior depth agentID = proc ((observation, convention), agentIAction) -> do
     statePred <- agentIPrior depth agentID -< (agentIAction, convention)
-    observe -< normalPdf2D (observation ^. stateObs) std (statePred ^. ball)
+    observe -< normalPdf2D (observation ^. stateObs) std (statePred ^. _1 . ball)
     let action = observation ^. actionObs (other agentID) . agentAction
-    let predictedAction = statePred ^. actions.agentLens (other agentID) . agentAction
+    let predictedAction = statePred ^.  _1.actions.agentLens (other agentID) . agentAction
     observe -< normalPdf2D action 0.5 predictedAction
     returnA -< statePred
 
-agentIDecision :: Depth -> AgentID i -> (State, Convention) >-/-> AgentAction i
-agentIDecision _ _ = proc (state, convention) -> do 
+timelessListener :: Particles State -> AgentAction i -> State -> Log Double 
+timelessListener param (AgentAction action) state = 
+    let priorDistMean = sum ((^. ball) . fst <$> param) / fromIntegral (length param)
+        priorDistVar = 0.1
+        posteriorDistMean = (priorDistMean + action) / 0.1
+        posteriorDistStd = 0.1
+    in normalPdf2D posteriorDistMean posteriorDistStd (state ^. ball)
+
+agentIDecision :: Depth -> AgentID i -> ((State, Particles State), Convention) >-/-> AgentAction i
+agentIDecision d _ = proc ((state, _), convention) -> do
+    returnA -< AgentAction $ state ^. ball + convention ^. coords
+agentIDecision d _ = proc ((state, otherAgentBelief), convention) -> do
+    action <- walk1D &&& walk1D  -< 1
+    -- futureState <- undefined  -< (AgentAction (uncurry V2 action), (state, convention))
+    arrM factor -< timelessListener otherAgentBelief (AgentAction (uncurry V2 action)) state
     returnA -< AgentAction $ state ^. ball + convention ^. coords
 
-agent :: Depth -> AgentID i -> (Observation, Convention) >-/-> (AgentAction i, State)
+agent :: forall i . Depth -> AgentID i -> (Observation, Convention) >-/-> (AgentAction i, (State, Particles State))
 agent 0 _ = proc (obs, convention) -> do
-    s <- arr ((/10) . sum . take 10) . accumulateWith (:) [] -< obs ^. stateObs
+    s <- arr ((/10) . sum . take 10) . accumulateWith (:) [] -< (obs ^. stateObs)
     let state = State s (obs ^. actionObs SOne, obs ^. actionObs STwo )
-    returnA -< (AgentAction (s + convention ^. coords), state)
+    returnA -< (AgentAction (s + convention ^. coords), (state, []))
 agent depth i = feedback (AgentAction 0) proc input@((_, convention), _) -> do
     state <- agentIPosterior depth i -< input
-    nextAct <- agentIDecision depth i -< (state, convention) 
+    nextAct <- agentIDecision depth i -< (state, convention)
     -- let nextAct = AgentAction $ state ^. ball + convention ^. coords
     returnA -<  ((nextAct, state), nextAct)
 
-joint :: Depth -> AgentID i -> Observation >-/-> ((AgentAction i, State), Convention)
+joint :: Depth -> AgentID i -> Observation >-/-> ((AgentAction i, (State, Particles State)), Convention)
 joint depth agentID = proc obs -> do
     convention <- conventionPrior agentID -< ()
     (action, state) <- agent depth agentID -< (obs, convention)
@@ -270,12 +290,13 @@ main = feedback (AgentAction 0, AgentAction 0) proc (_, actions) -> do
 
     agent2Belief <- particleFilter params{n=50} (joint (Depth 1) STwo) -< trueObservation
     ((a2actNew, _), _) <- constantly empirical -< agent2Belief
-    let stateBeliefAgent2 = first (snd . fst) <$> agent2Belief
+    let stateBeliefAgent2 = first (fst . snd . fst) <$> agent2Belief
+    let beliefBeliefAgent2 =  join $ ( snd . snd . fst . fst) <$> agent2Belief
     let conventionBeliefAgent2 = first snd <$> agent2Belief
 
     agent1Belief <- particleFilter params{n=50} (joint (Depth 1) SOne) -< trueObservation
     ((a1actNew, _), _) <- constantly empirical -< agent1Belief
-    let stateBeliefAgent1 = first (snd . fst) <$> agent1Belief
+    let stateBeliefAgent1 = first (fst . snd . fst) <$> agent1Belief
     let conventionBeliefAgent1 = first snd <$> agent1Belief
 
     let newActions = (a1actNew, a2actNew)
@@ -299,6 +320,15 @@ main = feedback (AgentAction 0, AgentAction 0) proc (_, actions) -> do
         latent = 1000, -- newActions ^. _2 . agentAction . to (fromMaybe 1000),
         particles = first (^. ball) <$> stateBeliefAgent2
         }
+    
+    pic6 <- renderObjects black -< Result {
+        measured = 1000, --  a2actNew ^. agentAction . to (fromMaybe 1000),
+        latent = 1000, -- newActions ^. _2 . agentAction . to (fromMaybe 1000),
+        particles = first (^. ball) <$> beliefBeliefAgent2
+        }
+    
+    pic7 <- drawSquare -< (a1actNew ^. agentAction, 0.1, green )
+    pic8 <- drawSquare -< (a2actNew ^. agentAction, 0.1, yellow )
 
     pic4 <- fold <$> mapMSF drawParticle -< (\(x,y) -> (x,y,green)) . first (^. coords) <$> conventionBeliefAgent1
     pic5 <- fold <$> mapMSF drawParticle -< (\(x,y) -> (x,y,yellow)) . first (^. coords) <$> conventionBeliefAgent2
@@ -309,7 +339,7 @@ main = feedback (AgentAction 0, AgentAction 0) proc (_, actions) -> do
 
 
     returnA -< (
-            translate (-300) 0 (pic1 <> pic2 <> pic3)
+            translate (-300) 0 (pic1 <> pic2 <> pic3 <> pic6 <> pic7 <> pic8)
             <> line [(0, 1000), (0,-1000)]
             <> languagePic
             , newActions)
