@@ -131,7 +131,7 @@ type a >-/-> b = forall m. MonadMeasure m => MonadicSystem m a b
 -- another convenient alias
 type Particles a = [(a, Log Double)]
 
-
+-- helpful note: `Population m a` is isomorphic to `m [(a, Log Double)]`
 
 
 -- particleFilter takes an unnormalized stochastic system and returns a normalized stochastic system
