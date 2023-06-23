@@ -1,4 +1,5 @@
 
+{-# LANGUAGE ScopedTypeVariables #-}
 
 import Prelude hiding ((.)) -- don't expose standard definition of `.`
 import Control.Category
@@ -11,6 +12,7 @@ import Control.Monad.Bayes.Inference.SMC (SMCConfig(resampler))
 import Data.MonadicStreamFunction.InternalCore (MSF(unMSF, MSF))
 import Data.Functor (($>))
 import Inference (normalize)
+import Control.Monad.Bayes.Sampler.Strict (SamplerIO)
 
 
 -- I've left gaps in various parts of the code, marked by the word `undefined` (which just throws a runtime error).  
@@ -46,10 +48,10 @@ simpleCompose (S g) (S f)  = S (\x ->
         (gVal, nextGStep) = g fVal
     in (gVal, simpleCompose nextGStep nextFStep) )
 
-simpleIdentity :: SimpleSystem a a
+simpleIdentity :: forall a. SimpleSystem a a
 simpleIdentity = S (\x -> (x, simpleIdentity))
 
-feedback :: c -> SimpleSystem (a, c) (b, c) -> SimpleSystem a b
+feedback :: forall a b c.  c -> SimpleSystem (a, c) (b, c) -> SimpleSystem a b
 feedback initialVal (S f) = S (\aVal ->
   let ((nextBVal, nextC), nextACBCSystem) = f (aVal, initialVal)
   in (nextBVal, feedback nextC nextACBCSystem))
@@ -116,69 +118,75 @@ accumulateWith f s0 = feedback s0 (arr g)
 ------------
 
 
-
-
-
--- WIP
-
 -- -- to generalize beyond a discrete deterministic system, we generalize in the following way.  
--- -- the idea is that `m` is any function from types to types
-newtype System (m :: Type -> Type) (a :: Type) (b :: Type) = M {unM :: a -> m (b, System m a b)}
---                                                        -- ^ arbitrary name
+-- -- the idea is that `m` is any function from types to types (but to be useful in practice, a monad)
+newtype MonadicSystem (m :: Type -> Type) (a :: Type) (b :: Type) = 
+  MS                              {unM :: a -> m (b, MonadicSystem m a b)}
+-- ^ arbitrary constructor name     ^ accessor
 
-type a >--> b = forall m. MonadDistribution m => System m a b
+-- some type aliases that I use elsewhere in the code base
+type a >--> b = forall m. MonadDistribution m => MonadicSystem m a b
+type a >-/-> b = forall m. MonadMeasure m => MonadicSystem m a b
 
-type a >-/-> b = forall m. MonadMeasure m => System m a b
-
+-- another convenient alias
 type Particles a = [(a, Log Double)]
 
-sys :: a >--> Particles b
-sys = particleFilter undefined
 
--- particleFilter :: MonadDistribution m => System (Population m) a b -> System m a (Particles b)
-particleFilter :: (a >-/-> b) -> (a >--> Particles b)
-particleFilter msf = step initial
+
+
+-- particleFilter takes an unnormalized stochastic system and returns a normalized stochastic system
+
+
+-- Input system is of type `MonadicSystem (Population SamplerIO) a b`
+
+-- unpacking the definitions, this is effectively of type:
+-- a -> SamplerIO [((b, ...), Log Double)]
+
+-- Output system is of type `MonadicSystem SamplerIO a (Particles b)` 
+-- Unpacking the definitions, this is effectively of type:
+-- a -> SamplerIO ([(b, Log Double)], ...)
+
+-- (Note carefully where the square brackets and `Log Double` tuple are in the input system vs output system)
+
+
+-- I've added type signatures quite verbosely throughout
+-- As usual with Haskell, there's really only one way this definition can go if you follow the types
+-- note that this code doesn't need to be specialized to `SamplerIO`, but really any `MonadDistribution` instance. 
+particleFilter :: forall a b . MonadicSystem (Population SamplerIO) a b -> MonadicSystem SamplerIO a (Particles b)
+particleFilter (msf :: MonadicSystem (Population SamplerIO) a b) = step initial
 
   where
 
+  -- start by making one hundred copies of the input system
+  initial :: Population SamplerIO (MonadicSystem (Population SamplerIO) a b)
   initial = spawn 100 $> msf
-  step msfs = M \a -> do
-    let afterKernel = msfs >>= (\x -> unM x a)
-    bAndMSFs <- runPopulation $ normalize $ resampleSystematic afterKernel
-    let (currentPopulation, continuations) =
+
+
+  step :: Population SamplerIO (MonadicSystem (Population SamplerIO) a b) -> MonadicSystem SamplerIO a [(b, Log Double)]
+  step msfs = MS \(inputVal :: a) -> do -- this do-notation takes place in the monad SamplerIO 
+           -- ^ we now have to define the output system, which is a function `a -> SamplerIO ([(b, Log Double)], ...)`
+
+    -- for each copy of the input system (defined in `initial`), apply it to the input value (of the output system that we are in the process of defining)
+    let afterKernel :: Population SamplerIO (b, MonadicSystem (Population SamplerIO) a b)
+        afterKernel = msfs >>= (\x -> unM x inputVal) -- this bind (i.e. `>>=`) takes place in the (Population SamplerIO) monad
+    
+    -- this is the key step where we do resampling. note that we currently do resampling at every single step of the system, not adaptively
+    -- `runPopulation` is basically the accessor for a `Population SamplerIO`, which is under the hood just a `SamplerIO [(a, Log Double)]
+    (bAndMSFs :: [((b, MonadicSystem (Population m) a b), Log Double)] ) <- runPopulation (normalize (resampleSystematic afterKernel))
+    
+    let (currentPopulation :: [(b, Log Double)], continuations :: [(MonadicSystem (Population SamplerIO) a b, Log Double)]) =
           unzip $ (\((b, sf), weight) -> ((b, weight), (sf, weight))) <$> bAndMSFs
-    return (currentPopulation, step $ fromWeightedList $ pure continuations)
+    
+    let output :: [(b, Log Double)]
+        output = currentPopulation
 
--- instance Category (System m) where
---   id :: System m a a
---   id = undefined
---   -- note that we can write (f . g) which is convenient notation equivalent to ((.) f g)
---   (.) :: System m b c -> System m a b -> System m a c
---   (.) = undefined
+    -- some recursion needed here
+    -- `fromWeightedList` constructs a Population, mouseover for its type
+    let theRest :: MonadicSystem SamplerIO a [(b, Log Double)]
+        theRest = step (fromWeightedList (pure continuations))
 
--- -- `Arrow` is the typeclass required for the "proc ... do" notation used to manipulate systems.
--- -- To be an instance of `Arrow`, a type must first be an instance of `Category` (as above), and also implement `arr` and `first`.
--- instance Arrow (System m) where
---   arr :: (b -> c) -> System m b c
---   arr f = undefined
---   first :: System m b c -> System m (b, d) (c, d)
---   first (M f) = undefined
+    return (output, theRest)
 
 
--- -------------------
--- -- Probability
--- -------------------
 
--- -- what does it mean to be an implementation of probability distributions?
-
--- -- Dist a 
-
--- -- we should have a function of type `a -> Dist a` which assigns all probability to the given value of type a. 
-
--- -- we should have:
--- -- (a -> b) -> (Dist a -> Dist b)
-
--- -- todo bind
-
--- -- for continuous distributions, we should have a uniform distribution of type `Dist Double`
 
