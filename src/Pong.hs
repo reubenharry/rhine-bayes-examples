@@ -84,7 +84,7 @@ prior = safely $ S.evalStateT loop (State (V2 0 (-2)) 0) where
     movement :: State -> Direction -> SignalFunction Stochastic Action State
     movement state dir = proc action -> do
         barPosition <- iPre (state ^. barPos) -< action
-        ballPosX <- walk1D -< ()
+        ballPosX <- brownianMotion1D -< ()
         ballPosY <- (case dir of Up -> id; Down -> negate) <$> time -< ()
         returnA -< (state
             & set barPos barPosition
@@ -92,8 +92,8 @@ prior = safely $ S.evalStateT loop (State (V2 0 (-2)) 0) where
 
 
 
-    walk1D :: SignalFunction Stochastic () Double
-    walk1D = proc _ -> do
+    brownianMotion1D :: SignalFunction Stochastic () Double
+    brownianMotion1D = proc _ -> do
         dacceleration <- constM (normal 0 8 ) -< ()
         acceleration <- decayIntegral 1 -< dacceleration
         velocity <- decayIntegral 1 -< acceleration -- Integral, dying off exponentially

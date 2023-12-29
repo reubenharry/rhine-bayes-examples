@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 import Control.Category ((.))
 import Prelude hiding ((.))
 import Linear
-import Example (Result(..), renderObjects, decayingIntegral, empirical)
+import Example (Result(..), renderObjects, decayingIntegral, empirical, prior)
 import Inference
 import Control.Lens
 import Data.Generics.Product
@@ -23,6 +23,7 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import GHC.Float (int2Double)
 import Control.Monad.Trans.MSF.List
 import Debug.Trace (traceM)
+import Control.Monad.Bayes.Sampler.Strict (sampleIO)
 
 getCommand :: Parsec Void T.Text (Either Int Int)
 getCommand = do
@@ -44,7 +45,7 @@ demo1 = proc ui -> do
     --         Right (Right i) -> i
     --         _ -> 0
   
-    latent <- worldModel -< -2.0
+    latent <- worldModel -< -1.0
     observations <- observationModel -< latent
 
     (theta, beliefAboutState) <- onlinePMMH -< observations
@@ -75,6 +76,7 @@ particlePosition1D = decayingIntegral 1 . decayingIntegral 1 . whiteNoise
 
 worldModel :: System Stochastic Theta State
 worldModel = proc d -> do
+  -- Example.prior -< ()
   xPos <- particlePosition1D -< d
   yPos <- particlePosition1D -< d
   returnA -< V2 xPos yPos
@@ -103,21 +105,52 @@ logp' x = -((x**2)/2)
 
 --
 
+energy :: (Double) -> Log (Double)
+energy = (\theta -> Exp $ negate $ (theta ** 2) /2 )
+
+chain :: (MonadDistribution m, MonadIO m) => MSF m (Log Double) (Double, Double)
+chain = feedback 0 proc (ratio, oldTheta) -> do 
+  proposedTheta <- arrM (`normal` 0.2) -< oldTheta
+  -- let ratio = min 1 (proposedThetaLk / oldLk)
+  -- arrM (liftIO . print) -< show (proposedThetaLk, oldLk, "f")
+  accept <- arrM bernoulli -< ln $ exp ratio
+  -- arrM (liftIO . print) -< show (accept, ratio, "g")
+  let (newTheta) = if accept then (proposedTheta) else (oldTheta)
+  returnA -< ((newTheta, proposedTheta), (newTheta))
+
+calc :: MonadDistribution m => MSF m (Double, Double) (Log Double)
+calc = arr (\(theta, proposedTheta) -> 
+  min 1 (energy proposedTheta / energy theta))
+
+full :: (MonadDistribution m, MonadIO m) => MSF  m a (Double)
+full = feedback (0, 0) proc (_, (oldTheta, oldProposedTheta)) -> do 
+  ratio <- calc -< (oldTheta, oldProposedTheta)
+  (theta, proposedTheta) <- chain -< ratio
+  returnA -< (theta, (theta, proposedTheta))
+
+m = sampleIO $ reactimate $ arrM (liftIO . print) . full
+
+
 onlinePMMH :: System (Stochastic) (V2 Double) (Double, [(State, Log Double)])
 onlinePMMH = feedback 0 $ proc (obs, theta) -> do
     
     theta' <- arrM (`normal` 0.2) -< theta
     c <- count -< ()
-    [(pTheta, post), (pTheta', _)] <- mapMSF (particleFilterWithEvidence params{n=200} posteriorDistribution) -< [(theta, obs), (theta', obs)]
-    pThetas <- arr product . arr (take 30) . accumulateWith (:) [] -< pTheta
-    pThetas' <- arr product . arr (take 30) . accumulateWith (:) [] -< pTheta'
+    -- b <- (particleFilter params{n=100} posteriorDistribution) -< (-1.0, obs)
+    -- [(pTheta, post), (pTheta', _)] <- mapMSF (particleFilterWithEvidence params{n=100} posteriorDistribution) -< [(0, -1), (-1, -1)]
+    (pTheta, post) <-  (particleFilterWithEvidence params{n=100} posteriorDistribution) -< (theta, obs)
+    (pTheta', _) <-  (particleFilterWithEvidence params{n=100} posteriorDistribution) -< (theta', obs)
+    pThetas <- arr product . arr (take 200) . accumulateWith (:) [] -< pTheta
+    pThetas' <- arr product . arr (take 200) . accumulateWith (:) [] -< pTheta'
     let ratio = min 1 (pThetas' / pThetas) 
     -- let ratio = min 1 (
     --         (((exp (-(theta'**2)/2)) * ln (exp pTheta') ))
     --         / (((exp (-(theta**2)/2)) ) * ln (exp pTheta) ))
     accept <- arrM bernoulli -< ln $ exp ratio
-    arrM traceM -< show (theta', ln pThetas', theta, ln pThetas, ratio, "theta' p, theta p")
-    newTheta <- case c`mod`30==0 of 
+    -- arrM traceM -< show (theta', ln pThetas', theta, ln pThetas, ratio, "theta' p, theta p")
+    arrM traceM -< show (ln pThetas', ln pThetas, "theta' p, theta p")
+    -- arrM traceM -< show (pTheta, pTheta')
+    newTheta <- case c`mod`200==0 of 
         True -> arr (\((a,b), accept) -> if accept then a else b) -< ((theta', theta), accept)
         False -> returnA -< theta
     returnA -< ((newTheta, post), newTheta)

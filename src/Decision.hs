@@ -15,8 +15,8 @@ import Debug.Trace (traceM)
 type (--||->) a b = SignalFunction Stochastic a b
 type (--|/|->) a b = SignalFunction (Stochastic & Unnormalized) a b
 
--- walk1D :: SignalFunction Stochastic () Double
--- walk1D = proc _ -> do
+-- brownianMotion1D :: SignalFunction Stochastic () Double
+-- brownianMotion1D = proc _ -> do
 --   dacceleration <- constM (normal 0 12) -< ()
 --   acceleration <- decayingIntegral 5 -< dacceleration
 --   velocity <- decayingIntegral 5 -< acceleration -- Integral, dying off exponentially
@@ -29,7 +29,7 @@ sigmoid x = 1 / (1 + exp(-x))
 agent :: () --|/|-> V2 Double
 agent = proc _ -> do
     -- dir <- constM (uniformD [-2,2]) -< ()
-    -- ((* (2 * pi)) . sigmoid) <$> Example.walk1D -< ()
+    -- ((* (2 * pi)) . sigmoid) <$> Example.brownianMotion1D -< ()
     -- (* (2 * pi)) <$> constM (random) -< ()
     -- currentMS
     -- let vel = 20 * angle dir

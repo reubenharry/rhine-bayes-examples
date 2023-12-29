@@ -22,6 +22,7 @@ import Witch (into)
 import Prelude hiding (Real)
 import Util
 import qualified Debug.Trace as Debug
+import qualified Control.Category as C
 
 std :: Double
 std = 1
@@ -32,30 +33,35 @@ type Observation = V2 Double
 
 type Position = V2 Double
 
-prior :: SignalFunction Stochastic () Position
+prior :: () >--> Position
 prior = proc _ -> do
-  x <- walk1D -< ()
-  y <- walk1D -< ()
+  x <-brownianMotion1D-< ()
+  y <-brownianMotion1D-< ()
   returnA -< V2 x y
 
-observationModel :: SignalFunction Stochastic Position Observation
+observationModel :: Position >--> Observation
 observationModel = proc p -> do
-  xNoise <- constM (normal 0 std) -< ()
-  yNoise <- constM (normal 0 std) -< ()
+  xNoise <-(uncorrelated (normal 0 std))-< ()
+  yNoise <-(uncorrelated (normal 0 std))-< ()
   returnA -< p + V2 xNoise yNoise
 
+uncorrelated :: Monad m => m b -> MSF m a b
+uncorrelated = constM
 
-posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
+posterior :: Observation >-/-> Position
 posterior = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY) <- prior -< ()
-  observe -< normalPdf oY std trueY * normalPdf oX std trueX
-  returnA -< latent
+  latent@(V2 trueX trueY) <-prior-< ()
+  () <-observe-< normalPdf oY std trueY * normalPdf oX std trueX
+  returnA-< latent
 
-gloss :: SignalFunction Stochastic Text Picture
+inference :: Observation >--> [(Position, Log Double)]
+inference = particleFilter params posterior
+
+gloss :: Text >--> Picture
 gloss = proc _ -> do
-  actualPosition <- prior -< ()
-  measuredPosition <- observationModel -< actualPosition
-  samples <- (particleFilter params posterior) -< measuredPosition
+  actualPosition <-prior-< ()
+  measuredPosition <-observationModel-< actualPosition
+  samples <-(particleFilter params posterior)-< measuredPosition
   renderObjects
     -<
       Result
@@ -63,7 +69,7 @@ gloss = proc _ -> do
         actualPosition
         samples
 
-posteriorWeak :: SignalFunction (Stochastic & Unnormalized) Observation Position
+posteriorWeak :: Observation >-/-> Position
 posteriorWeak = proc (V2 oX oY) -> do
   (trueX, trueY) <- randomPosition &&& randomPosition -< ()
   observe -< normalPdf oY std trueY * normalPdf oX std trueX
@@ -73,7 +79,7 @@ posteriorWeak = proc (V2 oX oY) -> do
       uniform01 <- random
       return (10 * (uniform01 - 0.5))
 
-weakPrior :: SignalFunction Stochastic Text Picture
+weakPrior :: Text >--> Picture
 weakPrior = proc _ -> do
   actualPosition <- prior -< ()
   measuredPosition <- observationModel -< actualPosition
@@ -86,8 +92,8 @@ weakPrior = proc _ -> do
           latent = actualPosition
         }
 
-walk1D :: SignalFunction Stochastic () Double
-walk1D = proc _ -> do
+brownianMotion1D :: () >--> Double
+brownianMotion1D = proc _ -> do
   dacceleration <- constM (normal 0 8) -< ()
   acceleration <- decayingIntegral 1 -< dacceleration
   velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
@@ -95,7 +101,7 @@ walk1D = proc _ -> do
   returnA -< position
 
 
-decayingIntegral :: (Monad m, VectorSpace c (Diff (Time cl))) => 
+decayingIntegral :: (Floating (Diff (Time cl)) ,Monad m, VectorSpace c (Diff (Time cl))) => 
   Diff (Time cl) -> ClSF m cl c c
 decayingIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
 

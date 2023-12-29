@@ -49,7 +49,7 @@ toGloss sf = do
   flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)} $
     tagS
       @@ eventClock
-        >-- collect -@- glossConcurrently
+        >-- collect 
         --> morphS
           (hoist (lift . sampleIO))
           ( proc events -> do

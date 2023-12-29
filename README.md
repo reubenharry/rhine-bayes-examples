@@ -22,14 +22,14 @@ The code is written in a *probabilistic programming library* in the functional p
 ```haskell
 prior :: SignalFunction Stochastic () Position
 prior = proc _ -> do
-  x <- walk1D -< ()
-  y <- walk1D -< ()
+  x <- brownianMotion1D -< ()
+  y <- brownianMotion1D -< ()
   returnA -< V2 x y
 
   where 
 
-    walk1D :: SignalFunction Stochastic () Double
-    walk1D = proc _ -> do
+    brownianMotion1D :: SignalFunction Stochastic () Double
+    brownianMotion1D = proc _ -> do
       dacceleration <- constM (normal 0 8 ) -< ()
       acceleration <- decayingIntegral 1 -< dacceleration
       velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially

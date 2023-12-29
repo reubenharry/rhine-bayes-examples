@@ -1,18 +1,28 @@
 
 {-# LANGUAGE ScopedTypeVariables #-}
 
+
 import Prelude hiding ((.)) -- don't expose standard definition of `.`
 import Control.Category
 import Control.Arrow (Arrow(arr, first), returnA)
 import GHC.Base (Type)
-import Control.Monad.Bayes.Class (MonadDistribution, MonadMeasure, Log)
-import Control.Monad.Bayes.Weighted (runWeighted)
-import Control.Monad.Bayes.Population (runPopulation, extractEvidence, spawn, fromWeightedList, Population, resampleSystematic)
+import Control.Monad.Bayes.Class (MonadDistribution, MonadMeasure, Log, uniformD)
+import Control.Monad.Bayes.Weighted (runWeightedT)
+import Control.Monad.Bayes.Population (runPopulationT, extractEvidence, spawn, fromWeightedList, PopulationT, resampleSystematic)
 import Control.Monad.Bayes.Inference.SMC (SMCConfig(resampler))
 import Data.MonadicStreamFunction.InternalCore (MSF(unMSF, MSF))
 import Data.Functor (($>))
 import Inference (normalize)
 import Control.Monad.Bayes.Sampler.Strict (SamplerIO)
+import Control.Monad.Bayes.Enumerator (Enumerator, fromList)
+import Control.Monad.Trans.MSF (Writer, writer)
+import Control.Lens ((^.))
+import Data.Fix (Fix(..))
+import Data.Functor.Foldable
+import Control.Monad.Trans.Free
+import Data.Void (Void, absurd)
+import Data.Functor.Compose
+import Data.Functor.Identity (Identity(..))
 
 
 -- I've left gaps in various parts of the code, marked by the word `undefined` (which just throws a runtime error).  
@@ -26,7 +36,91 @@ import Control.Monad.Bayes.Sampler.Strict (SamplerIO)
     -- S :: forall a b .  (a -> (b, SimpleSystem a b)) -> SimpleSystem a b
 newtype SimpleSystem (a :: Type) (b :: Type) = S (a -> (b, SimpleSystem a b))
 
+newtype Simple a b c = SS {unS :: (a -> (b, c))} deriving Functor
 
+type Syst m a b = FreeT (Simple a b) m Void
+
+foo :: Monad m => Syst m Bool Bool
+foo = FreeT (pure (Free (SS \b -> (not b, foo))))
+
+bar :: MonadDistribution m => Syst m Double Int
+bar = ana (\i -> Compose (pure (Free (SS \_ -> (3, i)))) ) True
+
+
+r :: Monad m => Syst m a b -> [a] -> m [b]
+r = cata (\(Compose f) -> \case
+  [] -> pure []
+  a:as -> do
+                            f' <- f
+                            case f' of
+                              Pure x -> absurd x 
+                              Free (SS x) -> do
+                                let (b, newF) = x a 
+                                bs <- newF as
+                                pure $ b : bs
+                            
+  )
+
+et :: SamplerIO [Int]
+et = r bar []
+  -- [] -> pure []
+  -- (a:as) -> let (b, fn) = f a in do
+  --     fn'' <- helper fn
+  --     (b :) <$> fn'' as
+  -- )
+
+helper :: FreeF m Void a -> m a
+helper (Free inp) = inp
+helper (Pure b) = absurd b
+
+-- pf :: forall a b . Syst (PopulationT SamplerIO) a b
+--     -> Syst SamplerIO a (PopulationT Identity b)
+-- pf (msf :: Syst (PopulationT SamplerIO) a b) = step initial
+
+--   where
+
+--   -- start by making one hundred copies of the input system
+--   initial :: (PopulationT SamplerIO) (Syst (PopulationT SamplerIO) a b)
+--   initial = spawn 100 $> msf
+
+
+  -- step :: (PopulationT SamplerIO) (Syst (PopulationT SamplerIO) a b) -> Syst SamplerIO a (PopulationT Identity b)
+  -- step msfs = ana (\(_) -> Compose (SS (\inputVal ->
+
+  --   let afterKernel :: PopulationT SamplerIO (b, Syst (PopulationT SamplerIO) a b)
+  --       afterKernel = msfs >>= (\x -> undefined $ (unS $ runFreeT x) inputVal ) -- this bind (i.e. `>>=`) takes place in the (PopulationT SamplerIO) monad
+  --   in undefined
+  --   ))) undefined
+
+    -- FreeT \(inputVal :: a) -> do -- this do-notation takes place in the monad SamplerIO 
+            -- ^ we now have to define the output system, which is a function `a -> SamplerIO ([(b, Log Double)], ...)`
+
+    -- -- for each copy of the input system (defined in `initial`), apply it to the input value (of the output system that we are in the process of defining)
+
+    -- -- this is the key step where we do resampling. note that we currently do resampling at every single step of the system, not adaptively
+    -- -- `runPopulationT` is basically the accessor for a `PopulationT SamplerIO`, which is under the hood just a `SamplerIO [(a, Log Double)]
+    -- (bAndMSFs :: [((b, Syst (PopulationT m) a b), Log Double)] ) <- runPopulationT (normalize (resampleSystematic afterKernel))
+
+    -- let (currentPopulationT :: [(b, Log Double)], continuations :: [(Syst (PopulationT SamplerIO) a b, Log Double)]) =
+    --       unzip (fmap (\((b, cont), weight) -> ((b, weight), (cont, weight))) bAndMSFs)
+
+
+    -- -- some recursion needed here
+    -- -- `fromWeightedList` constructs a PopulationT, mouseover for its type
+    -- let theRest :: MonadicSystem SamplerIO a (PopulationT Identity b)
+    --     theRest = step (fromWeightedList (pure continuations))
+
+    -- return (fromWeightedList $ Identity currentPopulationT, theRest)
+    -- undefined
+
+
+ex :: MonadMeasure m => FreeT (ListF Int) m Void
+ex = uncurry ana ex'
+
+ex' :: MonadMeasure m => ( () -> Base (FreeT (ListF Int) m Void) (), ())
+ex' = (undefined, ())
+
+  -- (pure b, undefined))
 
 -- note: there is another encoding of a system that is perhaps more useful if we're porting outside haskell, shown below
 -- but in Haskell it's somewhat complicated for technical reasons
@@ -115,12 +209,11 @@ accumulateWith f s0 = feedback s0 (arr g)
 
 
 
-------------
 
 
 -- -- to generalize beyond a discrete deterministic system, we generalize in the following way.  
 -- -- the idea is that `m` is any function from types to types (but to be useful in practice, a monad)
-newtype MonadicSystem (m :: Type -> Type) (a :: Type) (b :: Type) = 
+newtype MonadicSystem (m :: Type -> Type) (a :: Type) (b :: Type) =
   MS                              {unM :: a -> m (b, MonadicSystem m a b)}
 -- ^ arbitrary constructor name     ^ accessor
 
@@ -129,15 +222,15 @@ type a >--> b = forall m. MonadDistribution m => MonadicSystem m a b
 type a >-/-> b = forall m. MonadMeasure m => MonadicSystem m a b
 
 -- another convenient alias
-type Particles a = [(a, Log Double)]
+type Particles = PopulationT Identity -- [(a, Log Double)]
 
--- helpful note: `Population m a` is isomorphic to `m [(a, Log Double)]`
+-- helpful note: `PopulationT m a` is isomorphic to `m [(a, Log Double)]`
 
 
 -- particleFilter takes an unnormalized stochastic system and returns a normalized stochastic system
 
 
--- Input system is of type `MonadicSystem (Population SamplerIO) a b`
+-- Input system is of type `MonadicSystem (PopulationT SamplerIO) a b`
 
 -- unpacking the definitions, this is effectively of type:
 -- a -> SamplerIO [((b, ...), Log Double)]
@@ -149,43 +242,83 @@ type Particles a = [(a, Log Double)]
 -- (Note carefully where the square brackets and `Log Double` tuple are in the input system vs output system)
 
 
+-- PopulationT(SamplerIO)(a) ~ SamplerIO ([(a, Log(Double)])
+
+
 -- I've added type signatures quite verbosely throughout
 -- As usual with Haskell, there's really only one way this definition can go if you follow the types
 -- note that this code doesn't need to be specialized to `SamplerIO`, but really any `MonadDistribution` instance. 
-particleFilter :: forall a b . MonadicSystem (Population SamplerIO) a b -> MonadicSystem SamplerIO a (Particles b)
-particleFilter (msf :: MonadicSystem (Population SamplerIO) a b) = step initial
+particleFilter :: forall a b .
+  MonadicSystem (PopulationT SamplerIO) a b
+  -> MonadicSystem SamplerIO a (PopulationT Identity b)
+particleFilter (msf :: MonadicSystem (PopulationT SamplerIO) a b) = step initial
 
   where
 
   -- start by making one hundred copies of the input system
-  initial :: Population SamplerIO (MonadicSystem (Population SamplerIO) a b)
+  initial :: (PopulationT SamplerIO) (MonadicSystem (PopulationT SamplerIO) a b)
   initial = spawn 100 $> msf
 
 
-  step :: Population SamplerIO (MonadicSystem (Population SamplerIO) a b) -> MonadicSystem SamplerIO a [(b, Log Double)]
+  step :: (PopulationT SamplerIO) (MonadicSystem (PopulationT SamplerIO) a b) -> MonadicSystem SamplerIO a (PopulationT Identity b)
+  step msfs = MS \(inputVal :: a) -> do -- this do-notation takes place in the monad SamplerIO 
+            -- ^ we now have to define the output system, which is a function `a -> SamplerIO ([(b, Log Double)], ...)`
+
+    -- for each copy of the input system (defined in `initial`), apply it to the input value (of the output system that we are in the process of defining)
+    let afterKernel :: PopulationT SamplerIO (b, MonadicSystem (PopulationT SamplerIO) a b)
+        afterKernel = msfs >>= (`unM` inputVal) -- this bind (i.e. `>>=`) takes place in the (PopulationT SamplerIO) monad
+
+    -- this is the key step where we do resampling. note that we currently do resampling at every single step of the system, not adaptively
+    -- `runPopulationT` is basically the accessor for a `PopulationT SamplerIO`, which is under the hood just a `SamplerIO [(a, Log Double)]
+    (bAndMSFs :: [((b, MonadicSystem (PopulationT m) a b), Log Double)] ) <- runPopulationT (normalize (resampleSystematic afterKernel))
+
+    let (currentPopulationT :: [(b, Log Double)], continuations :: [(MonadicSystem (PopulationT SamplerIO) a b, Log Double)]) =
+          unzip (fmap (\((b, cont), weight) -> ((b, weight), (cont, weight))) bAndMSFs)
+
+
+    -- some recursion needed here
+    -- `fromWeightedList` constructs a PopulationT, mouseover for its type
+    let theRest :: MonadicSystem SamplerIO a (PopulationT Identity b)
+        theRest = step (fromWeightedList (pure continuations))
+
+    return (fromWeightedList $ Identity currentPopulationT, theRest)
+
+type Pop = PopulationT Identity
+
+pfGen ::
+  (input >-/-> output)
+  ->
+  (input >--> Pop output)
+pfGen msf = step initial
+
+  where
+
+  -- start by making one hundred copies of the input system
+  -- initial :: (PopulationT SamplerIO) (MonadicSystem (PopulationT SamplerIO) a b)
+  initial = spawn 100 $> msf
+
+
+
   step msfs = MS \(inputVal :: a) -> do -- this do-notation takes place in the monad SamplerIO 
            -- ^ we now have to define the output system, which is a function `a -> SamplerIO ([(b, Log Double)], ...)`
 
     -- for each copy of the input system (defined in `initial`), apply it to the input value (of the output system that we are in the process of defining)
-    let afterKernel :: Population SamplerIO (b, MonadicSystem (Population SamplerIO) a b)
-        afterKernel = msfs >>= (\x -> unM x inputVal) -- this bind (i.e. `>>=`) takes place in the (Population SamplerIO) monad
-    
+    let afterKernel = msfs >>= (`unM` inputVal) -- this bind (i.e. `>>=`) takes place in the (PopulationT SamplerIO) monad
+
     -- this is the key step where we do resampling. note that we currently do resampling at every single step of the system, not adaptively
-    -- `runPopulation` is basically the accessor for a `Population SamplerIO`, which is under the hood just a `SamplerIO [(a, Log Double)]
-    (bAndMSFs :: [((b, MonadicSystem (Population m) a b), Log Double)] ) <- runPopulation (normalize (resampleSystematic afterKernel))
-    
-    let (currentPopulation :: [(b, Log Double)], continuations :: [(MonadicSystem (Population SamplerIO) a b, Log Double)]) =
-          unzip $ (\((b, sf), weight) -> ((b, weight), (sf, weight))) <$> bAndMSFs
-    
-    let output :: [(b, Log Double)]
-        output = currentPopulation
+    -- `runPopulationT` is basically the accessor for a `PopulationT SamplerIO`, which is under the hood just a `SamplerIO [(a, Log Double)]
+    bAndMSFs <- runPopulationT (normalize (resampleSystematic afterKernel))
+
+    let (currentPopulationT, continuations ) =
+          unzip (fmap (\((b, cont), weight) -> ((b, weight), (cont, weight))) bAndMSFs)
+
+
 
     -- some recursion needed here
-    -- `fromWeightedList` constructs a Population, mouseover for its type
-    let theRest :: MonadicSystem SamplerIO a [(b, Log Double)]
-        theRest = step (fromWeightedList (pure continuations))
+    -- `fromWeightedList` constructs a PopulationT, mouseover for its type
+    let theRest = step (fromWeightedList (pure continuations))
 
-    return (output, theRest)
+    return (fromWeightedList $ Identity currentPopulationT, theRest)
 
 
 

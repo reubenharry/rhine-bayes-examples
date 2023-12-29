@@ -3,7 +3,7 @@ module Tutorial where
 import Concurrent
 import Prelude hiding ((.))
 import Control.Monad.Bayes.Class (MonadDistribution (normal))
-import Example (Result (Result, latent, measured, particles), decayingIntegral, renderObjects)
+import Example (Result (Result, latent, measured, particles), decayingIntegral, renderObjects, empirical)
 import FRP.Rhine.Gloss
 import Inference (params, particleFilter, SMCSettings (n))
 import Linear (V2 (..))
@@ -19,13 +19,7 @@ import Control.Category ((.))
 -- first example
 -----------------------
 
-f :: () -> Double -- (() -> a ~ a)
-f = undefined
 
-
-
-a :: ()
-a = ()
 
 demo1 :: UserInput >--> Picture
 demo1 = proc _ -> do
@@ -66,7 +60,9 @@ observationModel = proc latent -> do
 
 
 -- (Time -> Observation) -> UnnormalizedDistribution (Time -> State)
+-- posteriorDistribution :: MonadMeasure m => MonadicSystem m Observation State
 posteriorDistribution :: Observation >-/-> State
+-- posteriorDistribution :: Observation -> SamplerIO [((State, MonadicSystem ...), Log Double)]
 posteriorDistribution = proc obs -> do
   latent <- worldModel -< () -- latent :: (Time -> State)
   observe -< (normalPdf2D latent 1 obs)
@@ -104,7 +100,8 @@ posteriorDistributionA = proc (obs, action) -> do
 initialAction :: AgentAction i
 initialAction = AgentAction Nothing
 
-actionModel :: [(State, Log Double)] >--> AgentAction i
+-- actionModel :: [(State, Log Double)] >--> AgentAction i
+actionModel :: a >--> AgentAction i
 actionModel = undefined
 
 agent :: AgentID i -> Observation >--> AgentAction i
@@ -113,12 +110,29 @@ agent _ = feedback initialAction proc (obs, oldAction) -> do
   newAction <- actionModel -< belief
   returnA -< (newAction, newAction)
 
--- demo2 :: System (Stochastic & Feedback) UserInput Picture
--- demo2 = proc _ -> do
---   rec
---     observation <- worldModel -< action 
---     action <- agent one -< observation
---   returnA -< mempty
+agent' :: AgentID i -> Observation >--> AgentAction i
+agent' _ = constantly empirical . particleFilter params (feedback initialAction proc (obs, oldAction) -> do
+  belief <- posteriorDistributionA -< (obs, oldAction)
+  newAction <- actionModel -< belief
+  returnA -< (newAction, newAction))
+
+demo2' :: System (Stochastic & Feedback) UserInput Picture
+demo2' = proc _ -> do
+  rec
+    observation <- worldModel2 -< action 
+    action <- agent one -< observation
+  returnA -< mempty
+
+
+demo2'' :: () >--> (Observation, AgentAction One)
+demo2'' = couple (0, AgentAction Nothing) (agent one) worldModel2
+
+couple :: (a, b) -> (a >--> b) -> (b >--> a) -> (() >--> (a, b))
+couple initial x y = feedback initial proc ((), (a,b)) -> do
+  a' <- y -< b
+  b' <- x -< a
+  let out = (a',b')
+  returnA -< (out, out)
 
 demo2 :: UserInput >--> Picture
 demo2 = feedback undefined proc (_, observation) -> do
@@ -129,6 +143,14 @@ demo2 = feedback undefined proc (_, observation) -> do
 -----------------------
 -- third example
 -----------------------
+
+worldIntegrated :: System (Stochastic & Feedback) (AgentAction i) Observation
+worldIntegrated = proc action -> do
+  rec
+    observation <- worldModel2 -< action 
+    action <- agent one -< observation
+  returnA -< observation
+
 
 trueWorldModel :: (AgentAction One, AgentAction Two) >--> State
 trueWorldModel = undefined
@@ -155,7 +177,7 @@ demo3 = feedback (initialAction, initialAction) proc (_, (action1, action2)) -> 
 
 
 
-demo4 :: System (Stochastic & Feedback) UserInput Picture
+demo4 :: System (Stochastic & Feedback) () (Observation, AgentAction i, AgentAction (Other i))
 demo4 = proc _ -> do
   rec
     observation <- trueWorldModel -< (action1, action2)
@@ -166,7 +188,7 @@ demo4 = proc _ -> do
 
 
 
-cleverAgent :: AgentID i -> System Stochastic Observation (AgentAction i)
+cleverAgent :: AgentID i -> Observation >--> AgentAction i
 cleverAgent agentID = proc obs -> do
   belief <- particleFilter params (cleverPosteriorDistribution agentID) -< obs
   action <- cleverActionModel agentID -< belief
@@ -176,14 +198,14 @@ cleverAgent agentID = proc obs -> do
 
 
 
-    cleverPosteriorDistribution :: AgentID i -> System (Stochastic & Unnormalized) Observation State
+    cleverPosteriorDistribution :: AgentID i -> Observation >-/-> State
     cleverPosteriorDistribution agentID = proc obs -> do
       latent <- cleverPriorDistribution agentID -< undefined
       observe -< (normalPdf2D obs 1 latent)
       returnA -< latent
 
     -- note: this isn't quite right, but for demonstrative purposes...
-    cleverPriorDistribution :: forall i. AgentID i -> System Stochastic (AgentAction i) State
+    cleverPriorDistribution :: forall i. AgentID i -> AgentAction i >--> State
     cleverPriorDistribution agentID = feedback initialAction proc (myAction, otherAgentAction :: AgentAction (Other i)) -> do
         state <- trueWorldModel -< case agentID of
             SOne -> (myAction, otherAgentAction)
@@ -194,7 +216,7 @@ cleverAgent agentID = proc obs -> do
 
         returnA -< (state, newOtherAgentAction)
 
-    cleverActionModel :: AgentID i -> System Stochastic [(State, Log Double)] (AgentAction i)
+    cleverActionModel :: AgentID i -> [(State, Log Double)] >--> AgentAction i
     cleverActionModel agentID = undefined
 
 
@@ -244,7 +266,7 @@ cleverAgent agentID = proc obs -> do
 
 -- compose :: Monad m => SysStep m a b -> SysStep m b c -> SysStep m a c
 -- compose (S f) (S g) = S (\input time -> do
-  
+
 --   (intermediateOutput, nextF) <- (f input) time
 --   (finalOutput, nextG) <- (g intermediateOutput) time
 --   return (finalOutput, compose nextF nextG))

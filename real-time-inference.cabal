@@ -36,6 +36,7 @@ library
       Switch
       Tutorial
       Util
+      SDE
       Convention
       SimpleConvention
       FixedConvention
@@ -85,13 +86,21 @@ library
     , megaparsec
     , mmorph
     , monad-bayes
+    , free
+    , recursion-schemes
     , rhine
     , text
     , transformers
     , vector
+    , crem
     , witch
     , generic-data 
+    , data-fix
     , generic-lens
+    , distributive
+    , adjunctions
+    , relude
+    -- , representable-functors
   default-language: GHC2021
 
 executable demo

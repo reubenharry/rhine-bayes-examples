@@ -62,7 +62,7 @@ newtype Language where
     deriving Show
 $(makeLenses ''Language)
 
--- a population of particles
+-- a PopulationT of particles
 type Particles a = [(a, Log Double)]
 
 data State = State
@@ -119,8 +119,8 @@ actionObs i = case i of
 
 
 
-walk1D :: SignalFunction Stochastic Double Double
-walk1D = proc std -> do
+brownianMotion1D :: SignalFunction Stochastic Double Double
+brownianMotion1D = proc std -> do
     dacceleration <- arrM (normal 0 ) -< std
     acceleration <- decayingIntegral 1 -< dacceleration
     velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
@@ -160,7 +160,7 @@ agentIPrior (Depth 0) agentID = proc (action, staticPrior) -> do
 
     ballPos@(V2 ballX ballY) <- Example.prior -< ()
     lang' <- if staticPrior
-                then walk1D &&& walk1D -< 8
+                then brownianMotion1D &&& brownianMotion1D -< 8
                 else constM (pure (0, 0)) -< ()
     let lang = case (agentID, staticPrior) of
                 (_, False) -> uncurry V2 lang'
@@ -187,7 +187,7 @@ agentIPrior (Depth d) agentID =
         state <- stateModel -< case agentID of
             SOne -> (action, otherAgentAction)
             STwo -> (otherAgentAction, action)
-        lang <- undefined -< undefined -- walk1D &&& walk1D -< 8
+        lang <- undefined -< undefined -- brownianMotion1D &&& brownianMotion1D -< 8
         obs <- observationModel -< state
         (newOtherAgentAction, _) <- agentI (Depth (d-1)) (other agentID) -< (obs, userData)
         returnA -< ((state, Language $ uncurry V2 lang), newOtherAgentAction)

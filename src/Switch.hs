@@ -54,11 +54,11 @@ switch = feedback True $ proc (_, d :: Bool) -> do
 
 prior :: SignalFunction Stochastic () (Position, (Bool, Bool))
 prior = proc () -> do
-  (x, dir1) <- walk1DSwitch -< ()
-  (y, dir2) <- walk1DSwitch -< ()
+  (x, dir1) <- brownianMotion1DSwitch -< ()
+  (y, dir2) <- brownianMotion1DSwitch -< ()
   returnA -< (V2 x y, (dir1, dir2))
   where
-    walk1DSwitch = proc () -> do
+    brownianMotion1DSwitch = proc () -> do
       (n, b) <- switch -< ()
       acceleration <- constM (normal 0 4) -< ()
       velocity <- decayIntegral 1 -< acceleration -- Integral, dying off exponentially

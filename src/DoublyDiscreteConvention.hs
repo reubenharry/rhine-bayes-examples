@@ -53,7 +53,7 @@ import Data.Ord (Down(..))
 import GHC.IO (unsafePerformIO)
 import Control.Monad.Trans.MSF (performOnFirstSample)
 import qualified Data.Vector as V
-import Control.Monad.Bayes.Population (Population, runPopulation)
+import Control.Monad.Bayes.Population (PopulationT, runPopulationT)
 -- import DiscreteConvention ()
 
 
@@ -94,7 +94,7 @@ data Observation where
   deriving (Eq, Show)
 $(makeLenses ''Observation)
 
--- a population of particles
+-- a PopulationT of particles
 type Particles a = [(a, Log Double)]
 
 type UserData = Bool
@@ -434,8 +434,8 @@ drawParticle' = proc (position, probability, col) -> do
     drawBall -< (position, 0.05, withAlpha (into @Float $ exp $ 0.2 * ln probability) col)
 
 
--- argmax :: Population m a -> a
--- argmax pop = let population = runPopulation pop
+-- argmax :: PopulationT m a -> a
+-- argmax pop = let PopulationT = runPopulationT pop
 --     in undefined
 
     -- proc (AgentAction aL' aR', mode, ()) -> do

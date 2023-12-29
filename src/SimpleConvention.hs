@@ -126,16 +126,16 @@ numParticles = 50
 ------------------
 
 
-walk1D :: Double >--> Double
-walk1D = proc std -> do
+brownianMotion1D :: Double >--> Double
+brownianMotion1D = proc std -> do
     dacceleration <- arrM (normal 0 ) -< std
     acceleration <- decayingIntegral 1 -< dacceleration
     velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
     position <- decayingIntegral 1 -< velocity
     returnA -< position
 
-walk1DL :: Double >--> Double
-walk1DL = proc std -> do
+brownianMotion1DL :: Double >--> Double
+brownianMotion1DL = proc std -> do
     dacceleration <- arrM (normal 0 ) -< std
     acceleration <- decayingIntegral 0.75 -< dacceleration
     velocity <- decayingIntegral 0.75 -< acceleration -- Integral, dying off exponentially
@@ -181,7 +181,7 @@ conventionPrior :: AgentID i -> () >--> Convention
 conventionPrior agentID = proc () -> do
     -- returnA -< Convention (V2 0 0)
 
-    lang' <- walk1DL &&& walk1DL -< 10
+    lang' <- brownianMotion1DL &&& brownianMotion1DL -< 10
     -- lang'' :: V2 Double <- performOnFirstSample (uniformD [ constM (pure (i)) | i <- [-0.2,-0.1,0,0.1, 0.2]]) -< ()
     lang'' :: V2 Double <- performOnFirstSample (do
                                             x <- normal 0 1

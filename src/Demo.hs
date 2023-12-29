@@ -23,7 +23,7 @@ import Linear.Metric (Metric (..))
 import Linear.V2 (V2 (..))
 import Witch (into)
 import Prelude hiding (lines, Real, (.))
-import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, walk1D, edgeBy, drawBall)
+import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, stochasticOscillator, brownianMotion1D, edgeBy, drawBall)
 import Util
 import Data.Set (Set)
 import Data.Generics.Product (the)
@@ -168,7 +168,7 @@ agentWidth :: RealFloat a => a
 agentWidth = 0.5
 
 occlusionPrior :: SignalFunction Stochastic () Double
-occlusionPrior = fmap (* 2) Example.walk1D
+occlusionPrior = fmap (* 2) Example.brownianMotion1D
 
 occlusionObsModel :: SignalFunction Deterministic (Double, (Double, Double)) (Maybe Double)
 occlusionObsModel = arr \(barWidth, (agentPos, pos)) -> if abs pos < barWidth / 2 || abs (pos - agentPos) > agentWidth / 2 then Nothing else Just pos
@@ -319,3 +319,6 @@ circleMain = proc _ -> do
   belief <- particleFilter params {n = 75} circlePosterior -< obs
   let makePic col (V2 a b, prob) = color (withAlpha (into @Float $ exp $ 0.2 * ln prob) col) $ scale 150 150 $ scale (into @Float a) (into @Float b) (rectangleWire 2 2)
   returnA -< makePic red (true, 1.0 :: Log Double) <> mconcat (makePic violet <$> belief)
+
+
+

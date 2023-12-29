@@ -5,7 +5,7 @@ import Control.Category ((.))
 import qualified DoublyDiscreteConvention
 import Concurrent (UserInput, noInput)
 import FRP.Rhine (ClSF, Clock (Time), reactimateCl, arrMCl, constM)
-import FRP.Rhine.Gloss (Picture, morphS, GlossConcT, paintAllIO, launchGlossThread, defaultSettings, GlossSettings (display), Display (InWindow))
+import FRP.Rhine.Gloss (Picture, morphS, GlossConcT, paintAllIO, launchInGlossThread, defaultSettings, GlossSettings (display), Display (InWindow))
 import Control.Monad.Bayes.Class (MonadDistribution)
 import MainSF (eventClock)
 import Prelude hiding ((.))
@@ -21,5 +21,5 @@ sf :: (Time cl ~ Double, MonadDistribution m) => ClSF m cl
   Picture
 sf = DoublyDiscreteConvention.main
 
-main = launchGlossThread defaultSettings 
+main = launchInGlossThread defaultSettings 
     {display = InWindow "rhine-bayes" (1724, 1260) (10, 10)}  react

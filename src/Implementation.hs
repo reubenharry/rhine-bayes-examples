@@ -3,7 +3,9 @@
 import Prelude hiding ((.)) -- don't expose standard definition of `.`
 import Control.Category
 import Control.Arrow (Arrow(arr, first), returnA)
-import GHC.Base (Type)
+import GHC.Base (Type, join)
+import Control.Monad.Bayes.Population (PopulationT)
+import Control.Monad.Bayes.Sampler.Strict (SamplerIO)
 
 
 -- I've left gaps in various parts of the code, marked by the word `undefined` (which just throws a runtime error).  
@@ -16,6 +18,57 @@ import GHC.Base (Type)
 -- `S` is known as a "constructor", and has type: 
     -- S :: forall a b .  (a -> (b, SimpleSystem a b)) -> SimpleSystem a b
 newtype SimpleSystem (a :: Type) (b :: Type) = S (a -> (b, SimpleSystem a b))
+
+type TimeInterval = Double 
+
+newtype ContinuousSystem a b = SC (a -> TimeInterval -> (b, ContinuousSystem a b))
+
+
+newtype MonadicSystem m a b = MS (a -> m (b, MonadicSystem m a b))
+
+
+runMonadicSystem :: forall a b m . Monad m => MonadicSystem m a b -> [a] -> m [b]
+runMonadicSystem _ [] = return []
+runMonadicSystem (MS step) (x:xs) = do
+    (b, nextSystem) <- step x
+    next <- runMonadicSystem nextSystem xs
+    pure (b:next)
+
+
+monadicCompose :: Monad m => MonadicSystem m b c -> MonadicSystem m a b -> MonadicSystem m a c
+monadicCompose (MS g) (MS f)  = MS (\x -> do 
+    (fVal, nextFStep) <- f x
+    (gVal, nextGStep) <- g fVal
+    return (gVal, monadicCompose nextGStep nextFStep) )
+
+instance Monad m => Category (MonadicSystem m) where
+  (.) = monadicCompose
+  id = undefined
+
+
+
+
+-- instance Functor [] where 
+--   fmap :: (a -> b) -> [a] -> [b]
+--   fmap _ [] = []
+--   fmap f (x:xs) = (f x) : fmap f xs
+
+-- f >>= x
+-- bind f x 
+
+returnList a = [a]
+
+bind :: [a] -> (a -> [b]) -> [b]
+bind ls monadicFunction = let blah = fmap monadicFunction ls 
+  in join blah
+
+
+-- runMonadicSystem (MS step) (x:xs) = step x >>= (\(b, nextSystem) -> (runMonadicSystem nextSystem xs >>= (\next -> pure (b:next))) )
+  
+  -- do
+  --   (b, nextSystem) <- step x
+  --   next <- runMonadicSystem nextSystem xs
+  --   pure (b:next)
 
 
 
@@ -58,6 +111,8 @@ instance Category SimpleSystem where
   (.) :: SimpleSystem b c -> SimpleSystem a b -> SimpleSystem a c
   (.) = simpleCompose
 
+
+
 -- `Arrow` is the typeclass required for the "proc ... do" notation used to manipulate systems.
 -- To be an instance of `Arrow`, a type must first be an instance of `Category` (as above), and also implement `arr` and `first`.
 instance Arrow SimpleSystem where
@@ -65,6 +120,9 @@ instance Arrow SimpleSystem where
   arr f = S (\x -> undefined)
   first :: SimpleSystem b c -> SimpleSystem (b, d) (c, d)
   first (S f) = S undefined
+
+
+
 
 
 -- ghci> runSystemSimple boringExample [1,2,3]

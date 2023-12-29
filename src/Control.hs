@@ -26,8 +26,8 @@ type Action = Double
 system :: System Deterministic Action Position
 system = integral
 
-walk1D :: SignalFunction Stochastic () Double
-walk1D = proc _ -> do
+brownianMotion1D :: SignalFunction Stochastic () Double
+brownianMotion1D = proc _ -> do
   dacceleration <- constM (normal 0 16) -< ()
   acceleration <- decayingIntegral 1 -< dacceleration
   velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
@@ -42,7 +42,7 @@ systemUnlooped = proc (a, p) -> do
 
 agent :: System (Stochastic & Unnormalized) Position Action
 agent = proc pos -> do
-    action <- walk1D -< ()
+    action <- brownianMotion1D -< ()
     -- constM $ uniformD [-1, 1] -< ()
     (newPos, msf) <- stepper (feedback 0 systemUnlooped) -< pos
     next <- arrM id -< runNSteps msf 1 action

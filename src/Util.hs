@@ -42,6 +42,7 @@ type InputOutput = MonadIO
 type Deterministic = Monad
 
 type Feedback = MonadFix
+
 type SignalFunction constraint a b =
   forall m cl.
   (constraint m, Time cl ~ Double) =>
@@ -62,7 +63,7 @@ type (>-->) a b = SignalFunction Stochastic a b
 type (>-/->) a b = SignalFunction (Stochastic & Unnormalized) a b
 type (>-&->) a b = SignalFunction (Stochastic & Feedback) a b
 
--- a population of particles
+-- a PopulationT of particles
 type Particles a = [(a, Log Double)]
 
 constantly :: Monad m => (a -> m b) -> MSF m a b
@@ -101,7 +102,7 @@ averageOf things =
       sumOfThings = Prelude.sum $ fmap (uncurry (*)) properThings
    in sumOfThings / fullWeight
 
-stdDevOf :: (Functor t, Foldable t, VectorSpace b b) => t (b, Log b) -> b
+stdDevOf :: (Floating b, Functor t, Foldable t, VectorSpace b b) => t (b, Log b) -> b
 stdDevOf things =
   let av = averageOf things
       squares = first (\x -> norm (x - av) ** 2) <$> things
@@ -116,7 +117,7 @@ expected v =
 normalPdf2D :: V2 Double -> Double -> V2 Double -> Log Double
 normalPdf2D (V2 x1 y1) std (V2 x2 y2) = normalPdf x1 std x2 * normalPdf y1 std y2
 
-safeNorm :: (Num v, VectorSpace v a, Eq v) => v -> a
+safeNorm :: (Floating a, Num v, VectorSpace v a, Eq v) => v -> a
 safeNorm 0 = 0
 safeNorm x = norm x
 
