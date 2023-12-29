@@ -4,6 +4,8 @@ Let's consider a specific example.
 
 ![](img/coordination.gif)
 
+This is a gif generated from a probabilistic program described on the other pages on this site.
+
 On the right side of the screen, we see a purple ball moving around. The smaller purple dots are noisy observations. There are two agents at work, each of which sees the noisy observations, and produces the guess of the purple ball's position, shown in yellow and green respectively.
 
 The twist is that the two agents can send messages to each other. But to do so, they need a "language". In particular, at each point in time, each sends the other a 2D vector (x,y), representing the position of the object. The language consists of a vector added to this (representing the coordinate frame, if you like). 
