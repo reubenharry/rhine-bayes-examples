@@ -73,11 +73,11 @@ gui3 = proc userInput -> do
     render = arr (\(i, c) -> translate 50 50 (text (show i)) <> color c (circle 30))
 
 
-switch :: (Monad m, Double ~ Time cl, Num b) =>
-  (b -> ClSFExcept m cl a b b)
-  ->
-  (b -> ClSFExcept m cl a b b)
-  -> ClSF m cl a b
+-- switch :: (Monad m, Double ~ Time cl, Num b) =>
+--   (b -> ClSFExcept m cl a b b)
+--   ->
+--   (b -> ClSFExcept m cl a b b)
+--   -> ClSF m cl a b
 switch firstSignal secondSignal = safely $ loop 0
   where
     loop v = do
@@ -110,7 +110,7 @@ multipleChoice = (^? the @[Event] . ix 0 . _As @"EventKey" . _1 . _As @"Char" . 
 
 -- signals :: SignalFunction Deterministic UserInput (V2 Double)
 
-slider :: V2 Float -> Float -> SignalFunction Deterministic UserInput (Picture, Double)
+-- slider :: V2 Float -> Float -> SignalFunction Deterministic UserInput (Picture, Double)
 slider pos@(V2 p1 p2) range =
   let cond u = (case u ^.. the @[Event] . ix 0 of
           [EventKey (MouseButton LeftButton) _ _ _] -> True
@@ -151,7 +151,7 @@ data ButtonConfig = ButtonConfig {
 buttonParams :: ButtonConfig
 buttonParams = ButtonConfig {buttonSize = 20, buttonPos = 0, buttonColor = red, buttonInitialVal = False, buttonText = ""}
 
-button :: ButtonConfig -> SignalFunction Deterministic UserInput (Picture, Bool)
+-- button :: ButtonConfig -> SignalFunction Deterministic UserInput (Picture, Bool)
 button config = let ButtonConfig size pos@(V2 xPos yPos) col initialVal txt = config
   in proc userInput -> do
 

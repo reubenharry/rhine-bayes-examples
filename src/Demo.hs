@@ -272,7 +272,8 @@ fullLoopAgentUser = proc userInput -> do
 countDemoPrior :: SignalFunction Stochastic () Position
 countDemoPrior = Smoothing.prior
 
-countDemoObservationModel :: SignalFunction Deterministic Position (V2 Int)
+-- countDemoObservationModel :: SignalFunction Deterministic Position (V2 Int)
+countDemoObservationModel :: Monad m => MSF m (V2 Double) (V2 Int)
 countDemoObservationModel = proc pos -> do
   i <- Example.edgeBy (> 0) -< pos ^. _x
   j <- Example.edgeBy (> 0) -< pos ^. _y

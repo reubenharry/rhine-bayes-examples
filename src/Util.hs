@@ -121,7 +121,7 @@ safeNorm :: (Floating a, Num v, VectorSpace v a, Eq v) => v -> a
 safeNorm 0 = 0
 safeNorm x = norm x
 
-toggle :: Bool -> SignalFunction Deterministic Bool Bool
+-- toggle :: Bool -> SignalFunction Deterministic Bool Bool
 toggle initialVal = safely $ forever do
   try proc bool -> do
     pos <- constM (pure initialVal) -< ()
