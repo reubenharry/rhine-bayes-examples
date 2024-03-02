@@ -78,6 +78,7 @@ library
     , rhine
     , foldl
     , math-functions
+    , statistics
     , rhine-gloss
     , containers
     , dunai
@@ -109,6 +110,18 @@ library
 
 executable demo
   main-is: Main.hs
+  other-modules:
+      Paths_real_time_inference
+  hs-source-dirs:
+      app
+  ghc-options: -Wall -Wcompat -O2
+  build-depends:
+      base >=4.7 && <5
+    , real-time-inference
+  default-language: GHC2021
+
+executable sde
+  main-is: SDEMain.hs
   other-modules:
       Paths_real_time_inference
   hs-source-dirs:

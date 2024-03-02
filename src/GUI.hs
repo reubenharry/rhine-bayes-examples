@@ -88,20 +88,34 @@ switch firstSignal secondSignal = safely $ loop 0
       loop pos2
 
 
-multipleSwitch :: (Monad m, Double ~ Time cl, Num b) =>
-  (Int
-  -> b
-  -> ClSF (ExceptT (b, Int) m) cl
-        UserInput
-        b)
-  -> Int
-  -> ClSF m cl UserInput b
+-- multipleSwitch :: (Monad m, Double ~ Time cl, Num b) =>
+--   (Int
+--   -> b
+--   -> ClSF (ExceptT (b, Int) m) cl
+--         UserInput
+--         b)
+--   -> Int
+--   -> ClSF m cl UserInput b
 multipleSwitch signals = safely . loop 0
   where
     loop v i = do
       (pos, j) <- withFailure' signals i v
       try $ pos <$ timer 0.01
       loop pos j
+
+multipleSwitch' signals init = safely . loop init
+  where
+    loop v i = do
+      (pos, j) <- withFailure'' signals i v
+      try $ pos <$ timer 0.01
+      loop pos j
+
+withFailure'' b i pos = try proc (userInput, inp) -> do
+  pos2 <- b i pos -< inp
+  case multipleChoice userInput of
+    Just i' -> throwOn' -< (True, (pos2, i'))
+    Nothing -> returnA -< ()
+  returnA -< pos2
 
 
 multipleChoice :: UserInput -> Maybe Int

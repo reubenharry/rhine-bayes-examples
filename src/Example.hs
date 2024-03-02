@@ -218,8 +218,8 @@ drawBall = proc (V2 x y, width, theColor) -> do
 
 drawParticle :: Monad m => MSF m (Position, Log Double) Picture
 drawParticle = proc (position, probability) -> do
-  -- drawBall -< (position, 0.1, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) violet)
-  drawBall -< (position, 0.2, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) white)
+  drawBall -< (position, 0.1, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) violet)
+  -- drawBall -< (position, 0.2, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) white)
   -- drawBall -< (position, 0.1, white)
 
 traceIt x = Debug.trace (show x) x

@@ -38,7 +38,7 @@ glossClock = RescaledClock
   }
 
 -- Internal plumbing code. Quite complicated, handles concurrency. Shouldn't need to be changed or inspected.
-toGloss :: SignalFunction (Stochastic & InputOutput & Feedback) (UserInput, T.Text) Picture -> IO ()
+-- toGloss :: SignalFunction (Stochastic & InputOutput & Feedback) (UserInput, T.Text) Picture -> IO ()
 toGloss sf = do
   mvar <- newMVar ""
   void $
