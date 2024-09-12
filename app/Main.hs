@@ -32,6 +32,9 @@ main = MainSF.toGloss (MainSF.mainSF [
               (GUI.gui3, "GUI", ""),
               -- (CausalInf.main, "Causal", ""),
               (Control.mainGloss, "Control", ""),
+              (SDE.sf, "SDE", ""),
+              (SDE.sf3, "SDE particle tracking", ""),
+              (SDE.sf2, "SDE particle tracking marginalized", ""),
               -- (MCMC.demo1, "MCMC", ""),
 
 

@@ -23,12 +23,38 @@ import Data.Generics.Product (the)
 import FRP.Rhine.Gloss (scale)
 import Example (edge)
 import Data.Set (Set)
+import qualified Control.Monad.Trans.MSF as S
+import Prelude hiding (until)
+import Control.Monad.Morph (MonadTrans(lift))
+import Debug.Trace (traceM, trace)
+import qualified FRP.Rhine.ClSF as F
 
 
 deriving instance Generic Event
 deriving instance Generic Key
 deriving instance Generic KeyState
 
+
+-- withPause :: (a -> SignalFunction Stochastic UserInput a) -> (a -> SignalFunction Stochastic UserInput a)
+withPause sf init = safely $ S.evalStateT loop (init) where
+
+    loop = forever do
+        initialPosition <- S.get
+        let pause = (^. the @(Set Key) . contains (SpecialKey KeySpace))
+        stateAtPause <- until pause (sf initialPosition)
+        lift $ try (stateAtPause <$ timer 1 )
+        stateAtTimeofDownCollision <- until (pause . (\userInput -> (Debug.Trace.trace $ show $ userInput ^. the @(Set Key)) userInput ) :: UserInput -> Bool) (constM $ pure stateAtPause)
+        error "foo"
+        S.put stateAtTimeofDownCollision
+
+
+traceIt x = Debug.Trace.trace (show x) x
+until cond signal = lift $ try proc input -> do
+    output <- signal -< input
+    _ <- throwOn' -< (cond input, output)
+    returnA -< output
+
+-- pause :: SignalFunction m b c -> SignalFunction m UserInput c
 
 gui :: SignalFunction Stochastic UserInput Picture
 gui = proc userInput -> do
@@ -44,7 +70,7 @@ gui2 = proc userInput -> do
   let mouseInCircle = norm (userInput ^. the @"_mouse") < radius
   i <- edge -< mouseInCircle
   let click = userInput ^. the @(Set Key) . contains (MouseButton LeftButton)
-  let col 
+  let col
         | click && mouseInCircle = yellow
         | not click && mouseInCircle = red
         | otherwise = black
@@ -53,15 +79,15 @@ gui2 = proc userInput -> do
 gui3 :: System Deterministic UserInput Picture
 gui3 = proc userInput -> do
 
-  mousePos <- mouse -< userInput 
+  mousePos <- mouse -< userInput
   bool <- isInside -< mousePos
   int <- edge -< bool
   bool2 <- isMouseDown -< userInput
-  col <- color' -< (bool2, bool) 
+  col <- color' -< (bool2, bool)
   picture <- render -< (int, col)
   returnA -< picture
 
-  where 
+  where
     mouse = arr (\x -> x ^. the @"_mouse")
     isInside = arr (\x -> norm x < 30)
     isMouseDown = arr (\x -> x ^. the @(Set Key) . contains (MouseButton LeftButton))
@@ -120,7 +146,7 @@ withFailure'' b i pos = try proc (userInput, inp) -> do
 
 multipleChoice :: UserInput -> Maybe Int
 multipleChoice = (^? the @[Event] . ix 0 . _As @"EventKey" . _1 . _As @"Char" . to pure . _Show @Int)
-          
+
 
 -- signals :: SignalFunction Deterministic UserInput (V2 Double)
 
@@ -161,6 +187,12 @@ data ButtonConfig = ButtonConfig {
   buttonColor :: Color,
   buttonInitialVal :: Bool,
   buttonText :: String}
+
+
+
+
+  -- lc <- loopCond
+  -- if lc then loopBody >>= (\newBody -> while loopCond loopBody) else loopBody
 
 buttonParams :: ButtonConfig
 buttonParams = ButtonConfig {buttonSize = 20, buttonPos = 0, buttonColor = red, buttonInitialVal = False, buttonText = ""}

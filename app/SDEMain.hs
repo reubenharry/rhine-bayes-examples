@@ -23,7 +23,7 @@ import qualified SimpleConvention
 import qualified FixedConvention
 import qualified SDE
 
-main = SDE.main
+main = pure () -- SDE.main
 
 -- main :: IO ()
 -- main = MainSF.toGloss (MainSF.mainSF [

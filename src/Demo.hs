@@ -27,6 +27,8 @@ import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, st
 import Util
 import Data.Set (Set)
 import Data.Generics.Product (the)
+import SDE (mclmc, Params (Params), banana, PDF (PDF), PhaseSpace (State), ones)
+import Linear.V (fromV, Finite (toV))
 
 type Real = Double
 
@@ -47,7 +49,7 @@ groundTruth =
     signals 4 = moveWithArrows
     signals 5 = moveInLines
     signals 6 = gravity
-    signals _ = gravity
+    signals _ = foo
 
 
 -- Using the slightly less user friendly version of the types here, for technical reasons
@@ -56,6 +58,11 @@ oscillator (V2 x y) = fmap (+ V2 x y) proc _ -> do
   xAxis <- Example.stochasticOscillator 0 1 -< 1
   yAxis <- Example.stochasticOscillator 1 0 -< 1
   returnA -< V2 xAxis yAxis
+
+foo :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl t (V2 Double)
+foo initial = proc _ -> do
+  x <- mclmc (pure $ State (toV initial) ones) -< (Params 0.8 20 1, PDF banana )
+  returnA -< fromV x / 20
 
 moveWithArrows :: (MonadDistribution m, Time cl ~ Double) => V2 Double -> ClSF m cl UserInput (V2 Double)
 moveWithArrows pos = proc userInput -> do

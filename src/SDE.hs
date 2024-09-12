@@ -14,29 +14,29 @@ import Control.Monad ( (<=<), forever, replicateM )
 import GHC.Float (float2Double)
 
 import Linear.V ( dim, V(V), Finite (fromV, toV), fromVector, Dim )
-import Linear ((^*), (*^), Additive ((^+^)), Metric (norm, dot, signorm), (^/), V2 (V2), V3 (V3), R1 (_x))
+import Linear ((^*), (*^), Additive ((^+^)), Metric (norm, dot, signorm), (^/), V2 (V2), V3 (V3))
 import qualified Data.Vector as Vec
 import GHC.TypeLits (Nat, KnownNat, natVal)
 import qualified GHC.TypeLits as TP
 import Numeric.AD (grad)
-import Data.MonadicStreamFunction (arrM, Arrow (first, arr, second, (***)), returnA, morphS, accumulateWith, constM)
+import Data.MonadicStreamFunction (arrM, Arrow (first, arr, second), returnA, morphS, accumulateWith, constM)
 import Data.MonadicStreamFunction.InternalCore ( MSF, feedback )
-import Control.Monad.Bayes.Class (MonadDistribution(..), Log (..), MonadMeasure, normalPdf, condition)
+import Control.Monad.Bayes.Class (MonadDistribution(..), Log (..), MonadMeasure, condition)
 import Control.Category ( Category((.), id) )
 import Prelude hiding (id, (.))
-import FRP.Rhine (timeless, ClSF, TimeDomain (Diff), Clock (Time, Tag), RescaledClock (unscaledClock, RescaledClock, rescale), tagS, collect, (>--), (-->), (@@), arrMCl, TimeInfo, keepLast, Rhine, LiftClock, RescaledClockS (RescaledClockS, unscaledClockS, rescaleS), UTCTime, MonadIO (liftIO), waitClock, liftClock, sinceLastS, Millisecond, sinceInitS, hoistClSF, timer, runClSFExcept, ClSFExcept)
-import FRP.Rhine.Gloss (GlossSettings (display), defaultSettings, Display (InWindow), GlossSimClockIO (GlossSimClockIO), scale, Picture, flowGlossIO, paintAllIO, Event, GlossEventClockIO (GlossEventClockIO), withAlpha, translate, text, white, red, safely, Color, blue, green)
+import FRP.Rhine (timeless, ClSF, TimeDomain (Diff), Clock (Time, Tag), RescaledClock (unscaledClock, RescaledClock, rescale), TimeInfo, RescaledClockS (RescaledClockS, unscaledClockS, rescaleS), UTCTime, MonadIO (liftIO), sinceLastS, sinceInitS)
+import FRP.Rhine.Gloss (GlossSettings (display), defaultSettings, Display (InWindow), GlossSimClockIO (GlossSimClockIO), scale, Picture, withAlpha, translate, text, white, red, Color)
 import Control.Monad.Morph (MFunctor (hoist), MonadTrans (lift))
 import Example ( decayingIntegral, drawBall)
 import Inference (particleFilter, params, SMCSettings (n))
 import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Foldable (Foldable(..))
-import Util ( normalPdf2D, observe, type (>-->) )
+import Util ( normalPdf2D, observe, type (>-->), type (>-/->) )
 import GUI
-    ( button, buttonParams, slider, ButtonConfig(buttonPos), multipleSwitch, multipleSwitch' )
+    ( button, buttonParams, slider, ButtonConfig(buttonPos), multipleSwitch' )
 import Control.Monad.Bayes.Sampler.Strict
-import Concurrent (UserInput, handle, noInput)
-import Control.Monad.Trans.MSF (ReaderT, performOnFirstSample, throwOn, exceptS, ExceptT, throwS, StateT (runStateT), put, runStateS, get, runWriterS, WriterT (runWriterT), tell)
+import Concurrent (UserInput)
+import Control.Monad.Trans.MSF (ReaderT, performOnFirstSample, runWriterS, WriterT (runWriterT), tell)
 import FRP.Rhine.Gloss.IO (GlossConcT)
 import Data.Time (addUTCTime, getCurrentTime)
 import qualified Data.Vector as Vect
@@ -44,118 +44,74 @@ import Data.Maybe (fromMaybe)
 import Control.Foldl (Fold(Fold))
 import Numeric.Sum (KBNSum, kbn, Summation (..))
 import qualified Data.Foldable as F
-import Statistics.Distribution.Beta
-import Statistics.Distribution (ContDistr(density))
 import Witch (into)
 import FRP.Rhine.Gloss.Common (violet)
-import Control.Monad.Fix (MonadFix)
-import Control.Monad.Bayes.Population (PopulationT, runPopulationT)
 import qualified Control.Foldl as FOLD
 import Debug.Trace (traceM)
 import Data.Data (Proxy(..))
 import Data.Text (Text)
 import qualified Data.Text as T
-import Demo (oscillator)
 import GHC.Stack (callStack, prettyCallStack)
-import GHC.Base (Any)
-import Relude.Monad (MonadReader)
-import Data.Void (Void)
 import qualified FRP.Rhine.ClSF as C
 import FRP.Rhine.ClSF (try)
-import FRP.Rhine.ClSF.Except (throwOn')
-import qualified Control.Monad.Trans.MSF.State as D
 import Data.Monoid (Sum(Sum, getSum))
 
 
-
--- to implement
-
--- add pause
--- implement dependently typed multiple choice
--- implement clean switching of hmc vs mclmc vs mhmclmc, and choice of model
--- moving the particle around with asdf
--- separate demo for posterior
--- add all the existing demo
 
 
 -- truly intractable kernel
 
 -- the interesting noising strategy: pf over both the prior draw and the result
 
--- to think about:
-
--- smc as homotopy idea: think more!!!
+-- smc as homotopy idea
 
 -- think about multiple chains, with different params
 
--- hmc, so you can compare the two
 
 -- think about preconditioning as change in integrator vs change in target
 
--- think about jakob's idea re gibbs
-
--- what about constraining the momentum space in a way that doesn't add bias?
-
--- think more about clocks and continuity: an MSF from time domain
 
 -- to what extent do we have commutativity of mcmc and ppl?: fully, i think?
   -- what about `observe` in the mcmc?
-    -- even that?
-
--- treat tuning of L as an inference problem...
 
 
--- foo = do
---   x <- normal 0 1
---   factor $ normalPdf 0 1 x
---   return x
-
--- adaptive tuning
--- a running ess_corr calculation, that updates L
+-- adaptive tuning: a running ess_corr calculation, that updates L
 
 -- stochastic gradient: change noise live 
 -- do microcanonical ensemble mcmc directly: ooh: can we explicitly do the time rescaling (e.g. as a rescaled clock)? to get from microcanonical to the sde formulation?
 
 
--- questions: 
-
--- to what extend is mclmc close to geodesic motion on the information manifold
-
-
--- recall how to get a density from a ppl
-
--- hierarchical sdes? a ppl based on the sdes
-
-
--- the sde as a coelgebra corresponding to the distribution (which is the fixpoint of the corecursion): reweight the coalgebra instead of reweighting the distribution
--- anything asynchronous here that's interesting?
--- feedback?
+-- the sde as a coelgebra corresponding to the distribution
 
 -- renormalization constructively: define MSF -> MSF which groups times 
 
 -- what if you don't want to sample a fully stationary distribution? e.g. gaussian with moving mean
 
--- jakob:
-
 -- the mixture: two ways of doing it: 1. two separate sdes, 2. one sde with a mixture of densities
 -- particle filter to rule out excessive crossing of typical set: an automatic tuning method: we're uncertain of the correct L, so have an unnormalized SDE
--- what about adaptively changing step size?
--- hierarchical cases
 -- what about adaptively changing step size, e.g. lowering it when momentum is high? or even try different ones and weight by energy bias...
+
+
 
 -- a direct representation of the flow of the MCLMC SDE (conditional on the parameters and pdf)
 mclmc :: forall dist dim . (Distribution dist, Natural dim) =>
   dist (PhaseSpace dim Double) -> StochasticProcess dist (Params, PDF dim) (Position dim)
 mclmc initial = arr position . mclmcFull initial
 
-mclmcFull :: forall dist dim . (Distribution dist, Natural dim) =>
-
-  dist (PhaseSpace dim Double) -> StochasticProcess dist (Params, PDF dim) (PhaseSpace dim Double)
-
+mclmcFull :: forall dist dim . (Distribution dist, Natural dim) => dist (PhaseSpace dim Double) -> StochasticProcess dist (Params, PDF dim) (PhaseSpace dim Double)
 mclmcFull initial = proc (Params stepSize l temp, PDF df ) -> do
     timeless (accumulateWithM integrator initial) -< (
         positionUpdate,
         momentumUpdate ((/fromDouble' temp) . df),
+        mclachlanCoeffs,
+        l,
+        stepSize)
+
+hmcFull :: forall dist dim . (Distribution dist, Natural dim) => dist (PhaseSpace dim Double) -> StochasticProcess dist (Params, PDF dim) (PhaseSpace dim Double)
+hmcFull initial = proc (Params stepSize l temp, PDF df ) -> do
+    timeless (accumulateWithM integrator initial) -< (
+        positionUpdateEuclidean,
+        momentumUpdateEuclidean ((/fromDouble' temp) . df),
         mclachlanCoeffs,
         l,
         stepSize)
@@ -168,11 +124,11 @@ mchmcProposal init = runWriterS proc (Params stepSize _ temp, PDF df) -> do
         mclachlanCoeffs,
         stepSize)
 
-hmc :: KnownNat dim => Proposal dim
-hmc init = runWriterS proc (Params stepSize _ temp, PDF df) -> do
+hmcProposal :: KnownNat dim => Proposal dim
+hmcProposal init = runWriterS proc (Params stepSize _ temp, PDF df) -> do
     (accumulateWithM integratorDet ( lift $ lift init)) -< (
         positionUpdateEuclidean,
-        momentumUpdateEuclidean ((/fromDouble' temp) . df),
+        momentumUpdateEuclidean' ((/fromDouble' temp) . df),
         mclachlanCoeffs,
         stepSize)
 
@@ -237,11 +193,8 @@ tuning = C.safely $ forever do
 
 
 
-groundTruth :: (Monad m, MonadMeasure m) => MSF
-  (ReaderT
-     (TimeInfo (LiftClock IO GlossConcT (Millisecond 10)))
-     m)
-  (UserInput, Params)
+groundTruth :: 
+  (UserInput, Params) >-/->
   (V 2 Double)
 groundTruth =
   arr position . multipleSwitch' signals (State ones ones :: PhaseSpace 2 Double) 1
@@ -252,7 +205,7 @@ groundTruth =
       p <- mclmcFull (pure v) -< (params, PDF normalLogDensity )
       returnA -< p
     signals 2 = \v -> proc params -> do
-      p <- mclmcFull (pure v) -< (params, PDF banana )
+      p <- hmcFull (pure v) -< (params, PDF banana )
       returnA -< p
     signals 3 = \v -> proc params -> do
       p <- mclmcFull (pure v) -< (params, PDF mixtureDensity )
@@ -269,16 +222,16 @@ groundTruth =
     signals 7 = \v -> proc (Params eps _ temp) -> do
       x <- full (pure v) -< (PDF banana, (eps, temp))
       returnA -< x
-    signals 8 = \v -> proc params -> do
-      latent <- mclmc (pure v) -< (params, PDF  mixtureDensity)
-      noisy <- arrM (\(V2 x y) -> do 
-        x' <- normal x std
-        y' <- normal y std
-        return $ toV (V2 x' y')
+    -- signals 8 = \v -> proc params -> do
+    --   latent <- mclmc (pure v) -< (params, PDF  mixtureDensity)
+    --   noisy <- arrM (\(V2 x y) -> do 
+    --     x' <- normal x std
+    --     y' <- normal y std
+    --     return $ toV (V2 x' y')
         
-         ) -< fromV latent
-      p <- posterior -< (noisy, params, PDF  mixtureDensity)
-      returnA -< p
+    --      ) -< fromV latent
+    --   p <- posterior -< (noisy, params, PDF  mixtureDensity)
+    --   returnA -< p
     signals _ = undefined
     -- -- signals 2 = \v -> proc _ -> (+ v) <$> Example.prior -< ()
     -- signals 3 = const weakPrior
@@ -356,8 +309,6 @@ momentumUpdate' logdensity stepSize (State x u) = tell (Sum kinetic_energy_chang
     zeta = exp (-delta)
     kinetic_energy_change = delta - log 2 + log (1 + ue + (1-ue)*zeta**2)
 
-momentumUpdate :: (MonadDistribution m, KnownNat dim) => DensityFunction dim -> Double -> PhaseSpace dim Double -> m (PhaseSpace dim Double)
-momentumUpdate x y z = fst <$> runWriterT (momentumUpdate' x y z)
 
 positionUpdate :: (Applicative f, KnownNat n, Num a) => a -> PhaseSpace n a -> f (PhaseSpace n a)
 positionUpdate e (State x u) = pure $ State (x ^+^ e Linear.*^ u) u
@@ -367,10 +318,14 @@ positionUpdateEuclidean e (State x u) = pure $ State (x ^+^ e Linear.*^ g) u whe
   g = grad kineticEnergy u
 
 
+momentumUpdate :: (MonadDistribution m, KnownNat dim) => DensityFunction dim -> Double -> PhaseSpace dim Double -> m (PhaseSpace dim Double)
+momentumUpdate x y z = fst <$> runWriterT (momentumUpdate' x y z)
 
+momentumUpdateEuclidean :: (MonadDistribution m, KnownNat dim) => DensityFunction dim -> Double -> PhaseSpace dim Double -> m (PhaseSpace dim Double)
+momentumUpdateEuclidean x y z = fst <$> runWriterT (momentumUpdateEuclidean' x y z)
 
-momentumUpdateEuclidean :: forall dim m . (MonadDistribution m, KnownNat dim) => DensityFunction dim -> Double -> PhaseSpace dim Double -> WriterT Info m (PhaseSpace dim Double)
-momentumUpdateEuclidean logdensity stepSize (State x u) = tell (kin u - kin uu) >> pure (State x uu)
+momentumUpdateEuclidean' :: forall dim m . (MonadDistribution m, KnownNat dim) => DensityFunction dim -> Double -> PhaseSpace dim Double -> WriterT Info m (PhaseSpace dim Double)
+momentumUpdateEuclidean' logdensity stepSize (State x u) = tell (kin u - kin uu) >> pure (State x uu)
     where
     kin p = Sum $ 0.5 * dot p p
     g = grad logdensity x  :: V dim Double
@@ -437,19 +392,19 @@ hierarchical = proc (params, _) -> do
   returnA -< y
 
 
-posterior :: (MonadMeasure m) => StochasticProcess m (V 2 Double, Params, PDF 2) (PhaseSpace 2 Double)
+posterior :: (MonadMeasure m) => StochasticProcess m (V 2 Double, Params, PDF 2) (Vector 2)
 posterior = proc (obs, params, b) -> do
-  p <- mclmcFull initialState -< (params, b)
+  p <- mclmc initialState -< (params, b)
   -- i <- countDemoObservationModel -< fromV p
   -- arrM traceM -< show i
   -- arrM condition -< i == obs
   -- observe -< normalPdf 0 1 (norm $ position p)
-  observe -< normalPdf2D (fromV obs) std (fromV $ position p)
+  observe -< normalPdf2D (fromV obs) std (fromV p)
   -- last10 <- arr (take 100) . accumulateWith (:) [] -< p
   -- observe -<  (Exp $ log $ sum $ norm . momentum <$> last10)
   returnA -< p
 
-constrained :: (MonadMeasure m) => StochasticProcess m (Params, PDF 2) (PhaseSpace 2 Double)
+constrained :: (Params, PDF 2)  >-/-> (PhaseSpace 2 Double)
 constrained = proc b -> do
   p <- mclmcFull initialState -< b
   -- i <- countDemoObservationModel -< fromV p
@@ -620,15 +575,15 @@ instance (Num a, KnownNat n) => Num (PhaseSpace n a) where
   fromInteger :: (Num a, KnownNat n) => Integer -> PhaseSpace n a
   fromInteger = error $ prettyCallStack callStack
 
-main :: IO ()
-main = flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)} $
-    tagS @@ glossClockUTC GlossEventClockIO
-    >-- collect -->
-    ((intoGloss sf . accumulateWith handle noInput) @@ liftClock waitClock
-          :: Rhine (GlossConcT IO) (LiftClock IO GlossConcT (Millisecond 10)) [Event] Picture)
-    >-- keepLast mempty -->
-    (arrMCl paintAllIO @@ glossClockUTC GlossSimClockIO
-          :: Rhine (GlossConcT IO) (GlossClockUTC GlossSimClockIO) Picture ())
+-- main :: IO ()
+-- main = flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)} $
+--     tagS @@ glossClockUTC GlossEventClockIO
+--     >-- collect -->
+--     ((intoGloss sf . accumulateWith handle noInput) @@ liftClock waitClock
+--           :: Rhine (GlossConcT IO) (LiftClock IO GlossConcT (Millisecond 10)) [Event] Picture)
+--     >-- keepLast mempty -->
+--     (arrMCl paintAllIO @@ glossClockUTC GlossSimClockIO
+--           :: Rhine (GlossConcT IO) (GlossClockUTC GlossSimClockIO) Picture ())
 
 drawParticle :: Monad m => Color -> MSF m (V2 Double, Log Double) Picture
 drawParticle c = proc (position, probability) -> do
@@ -636,11 +591,56 @@ drawParticle c = proc (position, probability) -> do
   drawBall -< (position, 0.2, withAlpha ( into @Float $ exp $ 0.1 * ln probability) c)
   -- drawBall -< (position, 0.1, white)
 
-sf :: MSF
-  (ReaderT
-     (TimeInfo (LiftClock IO GlossConcT (Millisecond 10))) SamplerIO)
-  UserInput
-  Picture
+fullFilter :: a >--> [(Vector 2, Log Double)]
+fullFilter = particleFilter params{n=200} proc _ -> do 
+  
+  let params = Params 0.1 20 1
+      pdf = PDF banana 
+
+  latent <- mclmc initialState -< (params, pdf)
+  noise1 <- constM (normal 0 std) -< ()
+  noise2 <- constM (normal 0 std) -< ()
+  let noise = toV $ V2 noise1 noise2
+  result <- posterior -< (latent + noise, params, pdf)
+  returnA -< result 
+
+sf2 :: UserInput >--> Picture
+sf2 = proc userInput -> do
+
+  let params = Params 0.1 20 1
+      pdf = PDF banana 
+
+  -- latent <- mclmc initialState -< (params, pdf)
+  -- noise1 <- constM (normal 0 1) -< ()
+  -- noise2 <- constM (normal 0 1) -< ()
+  -- let noise = toV $ V2 noise1 noise2
+  -- result <- particleFilter params{n=200} posterior -< (latent + noise, params, pdf)
+  -- picture <- visualisation violet -< result
+  -- ball <- drawBall -< (fromV latent, 0.15, red)
+  -- obs <- arr (scale 0.1 0.1) . drawBall -< (fromV (latent + noise), 0.1, white)
+  -- returnA -< picture <> scale 0.1 0.1 ball <> obs
+
+  result <- fullFilter -< ()
+  picture <- visualisation violet -< result
+  returnA -< picture 
+
+sf3 :: UserInput >--> Picture
+sf3 = proc userInput -> do
+
+  let params = Params 0.1 20 1
+      pdf = PDF banana 
+
+  latent <- mclmc initialState -< (params, pdf)
+  noise1 <- constM (normal 0 1) -< ()
+  noise2 <- constM (normal 0 1) -< ()
+  let noise = toV $ V2 noise1 noise2
+  result <- particleFilter params{n=200} posterior -< (latent + noise, params, pdf)
+  picture <- visualisation violet -< result
+  ball <- drawBall -< (fromV latent, 0.15, red)
+  obs <- arr (scale 0.1 0.1) . drawBall -< (fromV (latent + noise), 0.1, white)
+  returnA -< picture <> scale 0.1 0.1 ball <> obs
+
+sf :: UserInput >--> Picture
 sf = proc userInput -> do
   (buttonPic, useBanana) <- GUI.button buttonParams {buttonPos = V2 (-350) 300} -< userInput
   (sliderPic, radius) <- slider (V2 (-300) 300) 60 -< userInput
@@ -702,13 +702,14 @@ sf = proc userInput -> do
   -- pic <- drawBall -< (fromV x, 0.1, red)
   -- result <- if not useBanana then
 
+  -- resultI <- particleFilter params{n=20} (mh initialState mchmcProposal ) -< (Params (stepSize * radius * 20 * timeInterval) (10*l) temp, PDF banana)
+  -- let result = fmap ( first (position . fst3) )  resultI
   result <- particleFilter params{n=200} (groundTruth ) -< (userInput, Params (stepSize * radius * 10 * timeInterval) l temp)
   picture <- visualisation red -< result
   --   else
   --     particleFilter params{n=200} (p groundTruth) -< (x, userInput, Params (stepSize * radius * 10 * timeInterval) l temp)
 
   -- picture <- arr (scale 0.1 0.1) . drawBall -< (fromV $ position ((undefined . fst) <$> resultI), 0.2, red)
-  -- resultI <- particleFilter params{n=20} (mh initialState mchmcProposal ) -< (Params (stepSize * radius * 20 * timeInterval) (10*l) temp, PDF banana)
   -- resultJ <- particleFilter params{n=20} (mh initialState hmc ) -< (Params (stepSize * radius * 20 * timeInterval) (10*l) temp, PDF banana)
 
   -- picture <- visualisation red -< fmap ( first (position . fst3) )  resultI
@@ -755,15 +756,6 @@ fromDouble' d = (/1000) $ fromIntegral (floor (d*1000))
 
 
 
-newtype MooreT m a b = MooreT {runMooreT :: m (b, a -> MooreT m a b)}
-
-pf :: Monad m => MooreT (PopulationT m) a b -> MooreT m a [(b, Log Double)]
-pf (MooreT moore) = MooreT do
-  x <- runPopulationT moore
-  let pop = (\((x,y),z) -> (x,z)) <$> x
-  -- let cont = mapM \((x,y),z) -> y x
-  pure (pop, pf <$> undefined)
-
 
 data D (m :: Nat) (l :: Nat) (t :: Nat) = D Double
 
@@ -795,8 +787,9 @@ pp 1 t = t <> " "
 pp i t = t <> "^" <> T.pack (show i) <> " "
 
 
--- >>> coord a
--- (5.0,"kg^1")
 
-x :: Any
-x = undefined
+
+
+----
+
+-- type Lagrangian = 
