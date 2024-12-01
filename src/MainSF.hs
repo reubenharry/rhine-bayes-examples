@@ -7,7 +7,7 @@ import Control.Applicative (optional)
 import Control.Concurrent
 import Control.Lens
 import Control.Monad (forever)
-import Control.Monad.Bayes.Sampler.Strict (sampleIO)
+import Control.Monad.Bayes.Sampler.Strict (sampleIO, SamplerIO)
 import Control.Monad.Morph
 import Data.Either (isRight)
 import Data.Functor (void)
@@ -25,6 +25,39 @@ import Util
 import Data.Set (Set)
 import Data.Generics.Product (the)
 
+import FRP.Rhine.Gloss hiding (loop, Down, Up)
+import SDE (sdeRhine, feR, attempt, attemptR)
+import Control.Monad.Bayes.Class
+import qualified Data.MonadicStreamFunction.InternalCore as A
+import qualified Control.Category as C
+import Control.Monad.Trans.MSF (ReaderT)
+import Example (stochasticOscillator)
+
+-- main = SDE.main
+
+
+
+main2 :: IO ()
+main2 = flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)}  $
+  feR
+  
+  -- Rhine ( 
+  --   Postcompose 
+  --   (Feedback (undefined ) (undefined :: SN
+  -- (GlossConcT IO)
+  -- (RescaledClock GlossSimClockIO Double)
+  -- ((), (Double,Int))
+  -- ((Double,Int), (Double,Int)) )) undefined
+  -- ) glossClock
+
+  -- tagS
+  --     @@ eventClock
+  --       >-- collect 
+  --       --> 
+  --         undefined @@ glossClock
+
+
+
 eventClock :: RescaledClock GlossEventClockIO Double
 eventClock = RescaledClock
   { unscaledClock = GlossEventClockIO
@@ -35,6 +68,12 @@ glossClock :: RescaledClock GlossSimClockIO Double
 glossClock = RescaledClock
   { unscaledClock = GlossSimClockIO
   , rescale = into @Double
+  }
+
+glossClockFast :: RescaledClock GlossSimClockIO Double
+glossClockFast = RescaledClock
+  { unscaledClock = GlossSimClockIO
+  , rescale = \x -> 2 * x & into @Double
   }
 
 -- Internal plumbing code. Quite complicated, handles concurrency. Shouldn't need to be changed or inspected.
@@ -49,7 +88,7 @@ toGloss sf = do
   flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)} $
     tagS
       @@ eventClock
-        >-- collect 
+        >-- collect
         --> morphS
           (hoist (lift . sampleIO))
           ( proc events -> do

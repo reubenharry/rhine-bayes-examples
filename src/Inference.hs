@@ -20,6 +20,8 @@ data SMCSettings m where
 params :: MonadDistribution m => SMCSettings m
 params = SMCSettings {n = 100, resampler = resampleSystematic}
 
+
+
 particleFilter ::
   forall m cl a b.
   Monad m =>

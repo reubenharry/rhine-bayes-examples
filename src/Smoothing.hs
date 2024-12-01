@@ -15,20 +15,25 @@ import GHC.Float ()
 import GUI (slider)
 import Inference
 import Linear (V2 (..))
-import Util 
-import Control.Category 
+import Util
+import Control.Category
 import Prelude hiding (id, (.))
-import FRP.Rhine (integral, Rhine)
+import FRP.Rhine (integral, Rhine, ClSF, TimeDomain (Diff, diffTime), Clock (Time), TimeInfo (absolute), readerS, BehaviorF, lastS, historySince)
 import qualified Control.Category as C
 import qualified Example
+import Data.Sequence (Seq, takeWhileL, (<|), empty, ViewR (EmptyR, (:>)), viewr)
+import qualified FRP.Rhine.ClSF.Reader as Q
+import qualified Control.Monad.Trans.MSF as D
+
+
 pastExample :: SignalFunction Stochastic UserInput Picture
 pastExample = proc _ -> do
-  
+
   actualPosition <- prior -< ()
   measuredPosition <- observationModel -< actualPosition
   samples <- particleFilter params (shift 50 . posterior) -< measuredPosition
-  
-  
+
+
   renderObjects
       -<
         Result
@@ -39,13 +44,13 @@ pastExample = proc _ -> do
 
 futureExample :: SignalFunction Stochastic UserInput Picture
 futureExample = proc userInput -> do
-  
+
   (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
   actualPosition <- prior -< ()
   measuredPosition <- observationModel -< actualPosition
   samples <- particleFilter params (posterior')  -< (measuredPosition, floor $ r * 100 + 1)
-  
-  
+
+
   pic <- renderObjects
       -<
         Result
@@ -84,10 +89,10 @@ past = proc userInput -> do
 
 actionExample :: SignalFunction Stochastic UserInput Picture
 actionExample = proc _ -> do
-  
+
   (action, pos) <- constantly empirical . particleFilter params full -< ()
   -- agentPosition <- integral -< action
-  
+
   out <- renderObjects
       -<
         Result
@@ -160,3 +165,41 @@ shift n = accumulateWith (\x xs -> take n $ x : xs) [] >>> arr last
 -- shiftBy :: Monad m => Int -> MSF m c c
 shiftBy :: Monad m => MSF m (c, Int) c
 shiftBy = accumulateWith (\(x, n) xs -> take n $ x : xs) [] >>> arr last
+
+shiftBy' :: (Monad m, Diff (Time cl) ~ a) => ClSF m cl (c, a) c
+shiftBy' = accumulateWith undefined undefined >>> arr last
+
+historySince' ::
+  (Monad m, Ord (Diff (Time cl)), TimeDomain (Time cl)) =>
+  -- | The size of the time window
+  
+  ClSF m cl (a, Diff (Time cl)) (Seq (TimeInfo cl, a))
+historySince' = D.readerS $ accumulateWith appendValue empty
+  where
+      appendValue :: (Ord (Diff (Time cl)), TimeDomain (Time cl)) => (TimeInfo cl, (a, Diff (Time cl))) -> Seq (TimeInfo cl, a) -> Seq (TimeInfo cl, a)
+      appendValue (ti, (a, dTime)) tias = takeWhileL (recentlySince dTime ti) $ (ti, a) <| tias
+    -- appendValue (ti, a) tias = takeWhileL (recentlySince ti) $ (ti, a) <| tias
+      recentlySince dTime ti (ti', _) = diffTime (absolute ti) (absolute ti') < dTime
+
+delayBy' ::
+  (Monad m, Ord (Diff td), TimeDomain td) =>
+  -- | The time span to delay the signal
+  a ->
+  BehaviorF m td (a, Diff td) a
+delayBy' a' = arr (safeHead . viewr) . arr (fmap snd) . historySince' 
+  where
+    safeHead EmptyR = a'
+    safeHead (_ :> a) = a
+
+delayBy'' ::
+  (Monad m, Ord (Diff td), TimeDomain td) =>
+  -- | The time span to delay the signal
+  a ->
+  Diff td -> 
+  BehaviorF m td a a
+delayBy'' a' difft = historySince difft  >>> arr (fmap snd) >>> arr (viewr >>> safeHead)
+
+  where
+      safeHead EmptyR = a'
+      safeHead (_ :> a) = a
+

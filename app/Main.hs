@@ -24,8 +24,11 @@ import qualified SimpleConvention
 import qualified FixedConvention
 import qualified SDE
 import Control.Arrow (returnA)
+import qualified DiscreteLanguageConvention
+import qualified SignalView
 
--- main = SDE.main
+
+-- main = MainSF.main2
 
 main :: IO ()
 main = MainSF.toGloss (MainSF.mainSF [
@@ -33,8 +36,10 @@ main = MainSF.toGloss (MainSF.mainSF [
               -- (CausalInf.main, "Causal", ""),
               (Control.mainGloss, "Control", ""),
               (SDE.sf, "SDE", ""),
-              (SDE.sf3, "SDE particle tracking", ""),
               (SDE.sf2, "SDE particle tracking marginalized", ""),
+              (SDE.sf3, "SDE particle tracking", ""),
+              (SDE.sf4, "banana", ""),
+              -- (, "MainSF 2", ""),
               -- (MCMC.demo1, "MCMC", ""),
 
 
@@ -43,7 +48,8 @@ main = MainSF.toGloss (MainSF.mainSF [
               -- --   (Concurrent.gloss, "Follow mouse", "todo"),
                 (Smoothing.past, "Past smoothed", ""),
                 (Smoothing.actionExample, "Past action", ""),
-                (Smoothing.futureExample, "Future", ""),
+                -- (Smoothing.futureExample, "Future", ""),
+              (SignalView.sf, "Signal View", ""),
               (Example.main, "Posterior predictive", ""),
               --   (Demo.occlusion, "Occlusion", ""),
               (Demo.countDemoMain, "Discrete observation", ""),
@@ -52,6 +58,7 @@ main = MainSF.toGloss (MainSF.mainSF [
               (FixedConvention.main, "Convention: fixed", ""),
               (SimpleConvention.main, "Convention: simplest", ""),
               (Convention.main, "Convention: simple", ""),
+              (DiscreteLanguageConvention.main, "Convention: discrete language", ""),
             --   (DiscreteConvention.main, "Convention", ""),
             --   (DoublyDiscreteConvention.main, "Doubly Discrete Convention", ""),
               -- (Decision.main, "Decision", ""),

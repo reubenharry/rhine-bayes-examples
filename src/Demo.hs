@@ -27,7 +27,7 @@ import Example (Result(..), prior, renderObjects, moveAwayFrom, drawTriangle, st
 import Util
 import Data.Set (Set)
 import Data.Generics.Product (the)
-import SDE (mclmc, Params (Params), banana, PDF (PDF), PhaseSpace (State), ones)
+import SDE (mclmc, Params (Params), banana, PDF (PDF), PhaseSpace (State), ones, attempt')
 import Linear.V (fromV, Finite (toV))
 
 type Real = Double
@@ -136,6 +136,8 @@ posterior = proc (obs, showObs, std, stay) -> do
     _ -> arrM factor -< 0
   returnA -< latent
 
+-- particleFilter' 
+
 demo :: SignalFunction Stochastic UserInput Picture
 demo = proc userInput -> do
   (sliderPic, r) <- slider (V2 (-400) 300) 60 -< userInput
@@ -159,6 +161,7 @@ demo = proc userInput -> do
   actualPosition <- groundTruth -< userInput
   measuredPosition <- observationModel -< (actualPosition, withObservation, std)
   samples <- particleFilter params {n = 75} posterior -< (measuredPosition, withObservation, std, userInput)
+  -- samples <- attempt' posterior -< (measuredPosition, withObservation, std, userInput)
   pic <-
     renderObjects
       -<
