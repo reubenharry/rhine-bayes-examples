@@ -1,7 +1,7 @@
 cabal-version:      3.0
 name:               browser-spike
 version:            0.1.0.0
-synopsis:           WASM + canvas runner for Rhine-style demos
+synopsis:           WASM canvas runner for Tutorial.demo1
 license:            BSD-3-Clause
 build-type:         Simple
 
@@ -10,13 +10,13 @@ executable browser-spike
   other-modules:
       Picture
       UserInput
-      Demo
       Canvas
       RhineCompat
       BayesLite
       Util
       Inference
-      Tracker
+      Example
+      Tutorial
   hs-source-dirs:   app, src
   default-language: GHC2021
   default-extensions:
@@ -31,13 +31,14 @@ executable browser-spike
       TypeOperators
   ghc-options:
       -Wall
+      -j1
       -no-hs-main
       -optl-mexec-model=reactor
       "-optl-Wl,--export=hs_startDemo"
   build-depends:
       base >= 4.16 && < 5
     , ghc-experimental
-    , dunai
+    , automaton
     , containers
     , transformers
     , mtl

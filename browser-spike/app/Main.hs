@@ -2,24 +2,32 @@
 
 module Main where
 
+import BayesLite (SamplerIO, sampleIOwith)
 import Canvas
-import BayesLite (SamplerIO, sampleIO)
-import Control.Monad.Trans.MSF.Reader (ReaderT)
+import Data.Automaton (Automaton, stepAutomaton)
+import Data.Automaton.Trans.Reader (runReaderS)
 import Data.IORef
-import Data.MonadicStreamFunction (MSF)
-import qualified Data.Set as Set
+import Data.Stream.Result (Result (..))
 import GHC.Wasm.Prim
 import Picture
 import RhineCompat
 import System.IO.Unsafe (unsafePerformIO)
-import Tracker (tracker)
+import System.Random (StdGen, mkStdGen)
+import Tutorial (demo1)
 import UserInput
 
-type TrackerSF = MSF (ReaderT (TimeInfo DtClock) SamplerIO) UserInput Picture
+-- | demo1 with TimeInfo supplied explicitly each frame.
+type DemoSF = Automaton SamplerIO (TimeInfo DtClock, UserInput) Picture
 
 {-# NOINLINE simRef #-}
-simRef :: IORef TrackerSF
-simRef = unsafePerformIO (newIORef tracker)
+simRef :: IORef DemoSF
+simRef = unsafePerformIO (newIORef (runReaderS demo1))
+
+-- | Persist RNG across frames. Resetting it each step freezes the noise
+-- process (and thus the integrated latent) at a fixed trajectory point.
+{-# NOINLINE genRef #-}
+genRef :: IORef StdGen
+genRef = unsafePerformIO (newIORef (mkStdGen 42))
 
 {-# NOINLINE inputRef #-}
 inputRef :: IORef UserInput
@@ -30,7 +38,7 @@ lastTimeRef :: IORef Double
 lastTimeRef = unsafePerformIO (newIORef 0)
 
 {-# NOINLINE sinceInitRef #-}
-sinceInitRef :: IORef Double
+sinceInitRef :: IORef Float
 sinceInitRef = unsafePerformIO (newIORef 0)
 
 {-# NOINLINE frameCbRef #-}
@@ -43,28 +51,20 @@ foreign import javascript "wrapper"
 foreign import javascript "wrapper"
   makeMouseCallback :: (Double -> Double -> IO ()) -> IO JSVal
 
-foreign import javascript "wrapper"
-  makeButtonCallback :: (JSString -> Bool -> IO ()) -> IO JSVal
-
 foreign import javascript unsafe "window.requestAnimationFrame($1)"
   js_requestAnimationFrame :: JSVal -> IO ()
 
 foreign import javascript unsafe "document.getElementById($1).addEventListener('mousemove', function(e){ var r = e.target.getBoundingClientRect(); $2(e.clientX - r.left, e.clientY - r.top); })"
   js_onMouseMove :: JSString -> JSVal -> IO ()
 
-foreign import javascript unsafe "document.getElementById($1).addEventListener('click', function(){ $2($1, true); setTimeout(function(){ $2($1, false); }, 150); })"
-  js_onButtonClick :: JSString -> JSVal -> IO ()
-
 foreign import javascript unsafe "console.log($1)"
   js_log :: JSString -> IO ()
 
 startDemo :: IO ()
 startDemo = do
-  js_log (toJSString "browser-spike: particle tracker (lite)")
+  js_log (toJSString "browser-spike: Tutorial.demo1")
   mouseCb <- makeMouseCallback onMouse
   js_onMouseMove (toJSString "sim") mouseCb
-  btnCb <- makeButtonCallback onButton
-  js_onButtonClick (toJSString "pulse") btnCb
   frameCb <- makeFrameCallback onFrame
   writeIORef frameCbRef frameCb
   js_requestAnimationFrame frameCb
@@ -77,17 +77,6 @@ onMouse canvasX canvasY = do
       y = h / 2 - realToFrac canvasY
   modifyIORef' inputRef $ \ui -> ui {mouseX = x, mouseY = y}
 
-onButton :: JSString -> Bool -> IO ()
-onButton name down = do
-  let n = fromJSString name
-  modifyIORef' inputRef $ \ui ->
-    ui
-      { buttonsDown =
-          if down
-            then Set.insert n (buttonsDown ui)
-            else Set.delete n (buttonsDown ui)
-      }
-
 onFrame :: Double -> IO ()
 onFrame tMs = do
   t0 <- readIORef lastTimeRef
@@ -95,13 +84,15 @@ onFrame tMs = do
   let dt
         | t0 == 0 = 1 / 30
         | otherwise = min 0.05 ((tMs - t0) / 1000)
-  modifyIORef' sinceInitRef (+ dt)
+  modifyIORef' sinceInitRef (+ realToFrac dt)
   tAbs <- readIORef sinceInitRef
   ui <- readIORef inputRef
   msf <- readIORef simRef
-  let ti = mkTimeInfo tAbs dt
-  (pic, msf') <- sampleIO $ stepClSF msf ti ui
+  g <- readIORef genRef
+  let ti = mkTimeInfo tAbs (realToFrac dt)
+  (Result msf' pic, g') <- sampleIOwith g $ stepAutomaton msf (ti, ui)
   writeIORef simRef msf'
+  writeIORef genRef g'
   canvas <- getCanvas "sim"
   paintAll canvas pic
   frameCb <- readIORef frameCbRef

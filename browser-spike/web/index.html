@@ -2,48 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>browser-spike · particle tracker</title>
+    <title>demo1 · particle tracker</title>
     <style>
-      body {
-        font-family: system-ui, sans-serif;
-        margin: 2rem;
-        background: #f6f6f6;
-      }
-      #sim {
-        display: block;
-        background: #111;
-        border: 1px solid #ccc;
-        cursor: crosshair;
-      }
-      .controls {
-        margin-top: 0.75rem;
-        display: flex;
-        gap: 0.5rem;
-        align-items: center;
-      }
-      button {
-        font-size: 1rem;
-        padding: 0.4rem 0.9rem;
-      }
-      #status {
-        margin-top: 0.75rem;
-        color: #444;
-        font-size: 0.9rem;
-      }
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f6f6f6; }
+      #sim { display: block; background: #111; border: 1px solid #ccc; cursor: crosshair; }
+      #status { margin-top: 0.75rem; color: #444; font-size: 0.9rem; }
     </style>
   </head>
   <body>
-    <h1>Particle tracker (Haskell WASM)</h1>
-    <p>
-      Yellow = latent position, red = noisy observation, purple = particles.
-      Move the mouse horizontally to change observation noise. Hold
-      <strong>Pulse</strong> to hide particles.
-    </p>
+    <h1>Tutorial.demo1 (WASM)</h1>
+    <p>Yellow = latent, red = observation, purple = particles. Same structure as <code>src/Tutorial.hs</code>.</p>
     <canvas id="sim" width="640" height="480"></canvas>
-    <div class="controls">
-      <button id="pulse" type="button">Pulse</button>
-      <span id="status">Loading WASM…</span>
-    </div>
+    <p id="status">Loading WASM…</p>
     <script type="module" src="./run.js"></script>
   </body>
 </html>

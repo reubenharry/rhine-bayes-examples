@@ -5,10 +5,10 @@
 module Inference where
 
 import BayesLite
-import Control.Monad.Trans.MSF.Reader (readerS, runReaderS)
+import Data.Automaton (Automaton, stepAutomaton, unfoldM)
+import Data.Automaton.Trans.Reader (readerS, runReaderS)
 import Data.Functor (($>))
-import Data.MonadicStreamFunction
-import Data.MonadicStreamFunction.InternalCore (MSF (..))
+import Data.Stream.Result (Result (..))
 import RhineCompat (ClSF)
 
 data SMCSettings m = SMCSettings
@@ -17,7 +17,7 @@ data SMCSettings m = SMCSettings
   }
 
 params :: (MonadDistribution m) => SMCSettings m
-params = SMCSettings {n = 40, resampler = resampleSystematic}
+params = SMCSettings {n = 50, resampler = resampleSystematic}
 
 particleFilter ::
   forall m cl a b.
@@ -32,18 +32,26 @@ particleFilterDiscreteTime ::
   forall m a b.
   (Monad m) =>
   SMCSettings m ->
-  MSF (PopulationT m) a b ->
-  MSF m a (Double, [(b, Double)])
-particleFilterDiscreteTime config msf = go $ spawn (n config) $> msf
+  Automaton (PopulationT m) a b ->
+  Automaton m a (Double, [(b, Double)])
+particleFilterDiscreteTime config msf =
+  go $ spawn (n config) $> msf
   where
-    go :: PopulationT m (MSF (PopulationT m) a b) -> MSF m a (Double, [(b, Double)])
-    go msfs = MSF \a -> do
-      bAndMSFs <- runPopulation $ resampler config $ flip unMSF a =<< msfs
+    go ::
+      PopulationT m (Automaton (PopulationT m) a b) ->
+      Automaton m a (Double, [(b, Double)])
+    go pop = unfoldM pop \a automata -> do
+      bAndAutomata <-
+        runPopulation $
+          resampler config $ do
+            auto <- automata
+            Result nextAuto b <- stepAutomaton auto a
+            pure (b, nextAuto)
       let (current, continuations) =
             unzip $
               (\((b, sf), weight) -> ((b, weight), (sf, weight)))
-                <$> bAndMSFs
-          -- evidence proxy: sum of weights after resampling is uninformative;
-          -- keep a placeholder for API symmetry with the full library.
-          ld = 0
-      pure ((ld, current), go $ fromWeightedList $ pure continuations)
+                <$> bAndAutomata
+      pure $
+        Result
+          (fromWeightedList $ pure continuations)
+          (0, current)
