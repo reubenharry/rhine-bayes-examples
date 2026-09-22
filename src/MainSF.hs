@@ -26,7 +26,7 @@ import Data.Set (Set)
 import Data.Generics.Product (the)
 
 import FRP.Rhine.Gloss hiding (loop, Down, Up)
-import SDE (sdeRhine, feR, attempt, attemptR)
+-- import SDE (sdeRhine, feR, attempt, attemptR)
 import Control.Monad.Bayes.Class
 import qualified Data.MonadicStreamFunction.InternalCore as A
 import qualified Control.Category as C
@@ -37,9 +37,9 @@ import Example (stochasticOscillator)
 
 
 
-main2 :: IO ()
-main2 = flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)}  $
-  feR
+-- main2 :: IO ()
+-- main2 = flowGlossIO defaultSettings {display = InWindow "rhine-bayes" (1200, 1000) (10, 10)}  $
+--   feR
   
   -- Rhine ( 
   --   Postcompose 

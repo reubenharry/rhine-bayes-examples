@@ -50,6 +50,7 @@ main = MainSF.toGloss (MainSF.mainSF [
                 (Smoothing.actionExample, "Past action", ""),
                 -- (Smoothing.futureExample, "Future", ""),
               (SignalView.sf, "Signal View", ""),
+              (undefined, "broken", ""),
               (Example.main, "Posterior predictive", ""),
               --   (Demo.occlusion, "Occlusion", ""),
               (Demo.countDemoMain, "Discrete observation", ""),

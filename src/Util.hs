@@ -122,7 +122,7 @@ safeNorm 0 = 0
 safeNorm x = norm x
 
 -- toggle :: Bool -> SignalFunction Deterministic Bool Bool
-toggle initialVal = safely $ forever do
+toggle initialVal = safely $ Control.Monad.forever do
   try proc bool -> do
     pos <- constM (pure initialVal) -< ()
     throwOn' -< (bool, pos)
@@ -163,7 +163,7 @@ runNSteps (MSF msf) n input = do
 ---
 
 hold :: Monad m => a -> MSF m (Maybe a) a
-hold a = feedback a proc (x, old) -> do
+hold a = Data.MonadicStreamFunction.InternalCore.feedback a proc (x, old) -> do
   case x of
     Just y -> returnA -< (y, y)
     Nothing -> returnA -< (old, old)
@@ -200,28 +200,28 @@ then @t + td1 + td2@ and so on.
 After arriving at @t + td1 + td2 + td3@ (and having executed all side effects until there),
 it will return the final output @b@, and the state of @clsf@ is reset to time @t@.
 -}
-forecastWith ::
-  (Monad m, TimeDomain (Time cl)) =>
-  -- | The time span to delay the signal
-  [(a, Diff (Time cl), Tag cl)] ->
-  ClSF m cl a b ->
-  ClSF m cl a b
-forecastWith inputs = MSF.readerS . forecastWith' inputs . MSF.runReaderS
-  where
-    forecastWith' ::
-      (Monad m, TimeDomain (Time cl)) =>
-      [(a, Diff (Time cl), Tag cl)] ->
-      MSF m (TimeInfo cl, a) b ->
-      MSF m (TimeInfo cl, a) b
-    forecastWith' [] clsf = clsf
-    forecastWith' inputs@((a', td, tag) : laterInputs) clsf = forecastWith' laterInputs $ MSF $ \(timeInfo, a) -> do
-      (_, msf') <- unMSF clsf (timeInfo, a)
-      let
-        timeInfo' = TimeInfo
-          { sinceLast = td
-          , sinceInit = sinceInit timeInfo `add` td
-          , absolute = absolute timeInfo `addTime` td
-          , tag
-          }
-      (b, _) <- unMSF msf' (timeInfo', a')
-      return (b, forecastWith' inputs msf')
+-- forecastWith ::
+--   (Monad m, TimeDomain (Time cl)) =>
+--   -- | The time span to delay the signal
+--   [(a, Diff (Time cl), Tag cl)] ->
+--   ClSF m cl a b ->
+--   ClSF m cl a b
+-- forecastWith inputs = MSF.readerS . forecastWith' inputs . MSF.runReaderS
+--   where
+--     forecastWith' ::
+--       (Monad m, TimeDomain (Time cl)) =>
+--       [(a, Diff (Time cl), Tag cl)] ->
+--       MSF m (TimeInfo cl, a) b ->
+--       MSF m (TimeInfo cl, a) b
+--     forecastWith' [] clsf = clsf
+--     forecastWith' inputs@((a', td, tag) : laterInputs) clsf = forecastWith' laterInputs $ MSF $ \(timeInfo, a) -> do
+--       (_, msf') <- unMSF clsf (timeInfo, a)
+--       let
+--         timeInfo' = TimeInfo
+--           { sinceLast = td
+--           , sinceInit = sinceInit timeInfo `add` td
+--           , absolute = absolute timeInfo `addTime` td
+--           , tag
+--           }
+--       (b, _) <- unMSF msf' (timeInfo', a')
+--       return (b, forecastWith' inputs msf')

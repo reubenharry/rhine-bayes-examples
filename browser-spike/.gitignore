@@ -1,0 +1,6 @@
+dist-newstyle/
+_deps/
+web/browser-spike.wasm
+web/ghc_wasm_jsffi.js
+.cabal-sandbox/
+cabal.project.local

@@ -73,17 +73,19 @@ library
       TypeOperators
   ghc-options: -Wall -Wcompat
   build-depends:
-      base >=4.7 && <5
+      -- base>=4.14 && <4.18
+      base>=4.7 && <5
     , bytestring
     , singletons
     , singletons-th
-    , rhine
+    , rhine >= 1.0 && <= 1.2
     , foldl
     , math-functions
     , statistics
-    , rhine-gloss
+    , rhine-gloss == 1.2
     , containers
     , dunai
+    , mtl
     , gloss
     , lens
     , linear
@@ -93,7 +95,6 @@ library
     , monad-bayes
     , free
     , recursion-schemes
-    , rhine
     , text
     , transformers
     , vector
@@ -120,33 +121,34 @@ executable demo
   ghc-options: -Wall -Wcompat -O2
   build-depends:
       base >=4.7 && <5
+      -- base>=4.14 && <4.18
     , real-time-inference
   default-language: GHC2021
 
-executable sde
-  main-is: SDEMain.hs
-  other-modules:
-      Paths_real_time_inference
-  hs-source-dirs:
-      app
-  ghc-options: -Wall -Wcompat -O2
-  build-depends:
-      base >=4.7 && <5
-    , real-time-inference
-  default-language: GHC2021
+-- executable sde
+--   main-is: SDEMain.hs
+--   other-modules:
+--       Paths_real_time_inference
+--   hs-source-dirs:
+--       app
+--   ghc-options: -Wall -Wcompat -O2
+--   build-depends:
+--     --   base >=4.7 && <5
+--     -- , real-time-inference
+--   default-language: GHC2021
 
-executable language
-  main-is: Language.hs
-  other-modules:
-      Paths_real_time_inference
-  hs-source-dirs:
-      app
-  ghc-options: -Wall -Wcompat -O2
-  build-depends:
-      base >=4.7 && <5
-    , real-time-inference
-    , rhine
-    , rhine-gloss
-    , monad-bayes
-    , mmorph
-  default-language: GHC2021
+-- executable language
+--   main-is: Language.hs
+--   other-modules:
+--       Paths_real_time_inference
+--   hs-source-dirs:
+--       app
+--   ghc-options: -Wall -Wcompat -O2
+--   build-depends:
+--     --   base >=4.7 && <5
+--     -- , real-time-inference
+--     -- -- , rhine <= 1.2
+--     -- , rhine-gloss
+--     -- , monad-bayes
+--     -- , mmorph
+--   default-language: GHC2021

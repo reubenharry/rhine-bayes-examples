@@ -1,0 +1,15 @@
+module TestSampler where
+
+import Control.Foldl qualified as Fold
+import Control.Monad (replicateM)
+import Control.Monad.Bayes.Class (MonadDistribution (normal))
+import Control.Monad.Bayes.Sampler.Strict (sampleSTfixed)
+import Control.Monad.ST (runST)
+
+testMeanAndVariance :: Bool
+testMeanAndVariance = isDiff
+  where
+    m = runST (sampleSTfixed (foldWith Fold.mean (normal 2 4)))
+    v = runST (sampleSTfixed (foldWith Fold.variance (normal 2 4)))
+    foldWith f = fmap (Fold.fold f) . replicateM 100000
+    isDiff = abs (2 - m) < 0.01 && abs (16 - v) < 0.1

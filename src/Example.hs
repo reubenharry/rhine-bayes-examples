@@ -23,6 +23,7 @@ import Prelude hiding (Real)
 import Util
 import qualified Debug.Trace as Debug
 import qualified Control.Category as C
+import Control.Monad.Bayes.Population (PopulationT)
 
 std :: Double
 std = 1
@@ -33,29 +34,40 @@ type Observation = V2 Double
 
 type Position = V2 Double
 
-prior :: () >--> Position
+prior :: SignalFunction Stochastic () Position
+-- prior :: () >--> Position
 prior = proc _ -> do
   x <-brownianMotion1D-< ()
   y <-brownianMotion1D-< ()
   returnA -< V2 x y
 
-observationModel :: Position >--> Observation
+
+-- observationModel :: Position >--> Observation
+observationModel :: SignalFunction Stochastic Position Observation
 observationModel = proc p -> do
   xNoise <-(uncorrelated (normal 0 std))-< ()
   yNoise <-(uncorrelated (normal 0 std))-< ()
   returnA -< p + V2 xNoise yNoise
 
-uncorrelated :: Monad m => m b -> MSF m a b
-uncorrelated = constM
 
-posterior :: Observation >-/-> Position
-posterior = proc (V2 oX oY) -> do
-  latent@(V2 trueX trueY) <-prior-< ()
-  () <-observe-< normalPdf oY std trueY * normalPdf oX std trueX
+-- posterior :: Observation >-/-> Position
+posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
+posterior = proc obs -> do
+  latent <-prior-< ()
+  _ <-weightBy-< normal2D obs latent
   returnA-< latent
 
-inference :: Observation >--> [(Position, Log Double)]
+inference :: Observation >--> Array (Position, Weight)
 inference = particleFilter params posterior
+
+
+particleFilter' ::
+  forall a b.
+  SignalFunction (Stochastic & Unnormalized) a b ->
+  SignalFunction Stochastic a (Array (b, Weight))
+particleFilter' _ = undefined 
+
+-- a >--> b ~= a -> Dist (b, a >--> b)
 
 gloss :: Text >--> Picture
 gloss = proc _ -> do
@@ -105,6 +117,14 @@ decayingIntegral :: (Floating (Diff (Time cl)) ,Monad m, VectorSpace c (Diff (Ti
   Diff (Time cl) -> ClSF m cl c c
 decayingIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
 
+
+type Weight = Log Double
+type Array = []
+
+normal2D (V2 oX oY) (V2 trueX trueY) = normalPdf oY std trueY * normalPdf oX std trueX
+
+weightBy :: MonadFactor m => MSF m (Log Double) ()
+weightBy = observe
 
 -- | Harmonic oscillator with white noise
 stochasticOscillator ::
@@ -158,7 +178,8 @@ moveAwayFrom = feedback 0 proc (otherBall, prevPos) -> do
 
   returnA -< (position, position)
 
-
+uncorrelated :: Monad m => m b -> MSF m a b
+uncorrelated = constM
 
 ----------
 -- display
