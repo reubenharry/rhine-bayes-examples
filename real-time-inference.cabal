@@ -1,8 +1,4 @@
-cabal-version: 1.12
-
--- This file has been generated from package.yaml by hpack version 0.35.1.
---
--- see: https://github.com/sol/hpack
+cabal-version: 2.0
 
 name:           real-time-inference
 version:        0.1.0.0
@@ -26,28 +22,11 @@ source-repository head
 library
   exposed-modules:
       Concurrent
-      Demo
       Example
-      GUI
       Inference
-      MCMC
       MainSF
-      Smoothing
-      Switch
       Tutorial
       Util
-      SDE
-      Convention
-      SimpleConvention
-      DiscreteLanguageConvention
-      FixedConvention
-      CausalInf
-      Control
-      -- DiscreteConvention
-      DoublyDiscreteConvention
-      Decision
-      Pong
-      SignalView
   other-modules:
       Paths_real_time_inference
   hs-source-dirs:
@@ -73,43 +52,19 @@ library
       TypeOperators
   ghc-options: -Wall -Wcompat
   build-depends:
-      -- base>=4.14 && <4.18
-      base>=4.7 && <5
-    , bytestring
-    , singletons
-    , singletons-th
-    , rhine >= 1.0 && <= 1.2
-    , foldl
-    , math-functions
-    , statistics
-    , rhine-gloss == 1.2
+      base >=4.18 && <5
+    , automaton
     , containers
-    , dunai
-    , mtl
     , gloss
-    , lens
     , linear
     , log-domain
-    , megaparsec
     , mmorph
     , monad-bayes
-    , free
-    , recursion-schemes
+    , rhine ^>=1.8
+    , rhine-gloss ^>=1.8
     , text
     , transformers
-    , vector
-    , crem
     , witch
-    , generic-data 
-    , data-fix
-    , generic-lens
-    , distributive
-    , adjunctions
-    , relude
-    , ad
-    , time
-    , matrix
-    -- , representable-functors
   default-language: GHC2021
 
 executable demo
@@ -120,35 +75,6 @@ executable demo
       app
   ghc-options: -Wall -Wcompat -O2
   build-depends:
-      base >=4.7 && <5
-      -- base>=4.14 && <4.18
+      base >=4.18 && <5
     , real-time-inference
   default-language: GHC2021
-
--- executable sde
---   main-is: SDEMain.hs
---   other-modules:
---       Paths_real_time_inference
---   hs-source-dirs:
---       app
---   ghc-options: -Wall -Wcompat -O2
---   build-depends:
---     --   base >=4.7 && <5
---     -- , real-time-inference
---   default-language: GHC2021
-
--- executable language
---   main-is: Language.hs
---   other-modules:
---       Paths_real_time_inference
---   hs-source-dirs:
---       app
---   ghc-options: -Wall -Wcompat -O2
---   build-depends:
---     --   base >=4.7 && <5
---     -- , real-time-inference
---     -- -- , rhine <= 1.2
---     -- , rhine-gloss
---     -- , monad-bayes
---     -- , mmorph
---   default-language: GHC2021

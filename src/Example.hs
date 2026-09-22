@@ -1,233 +1,24 @@
-{-# OPTIONS_GHC -Wno-deprecations #-}
 module Example where
 
-import Concurrent (UserInput)
-import Control.Monad.Bayes.Class hiding (prior, posterior)
-import Control.Monad.Bayes.Enumerator (enumerate)
-import Control.Monad.Trans.MSF.List (mapMSF)
 import Data.Foldable (Foldable (fold))
-import Data.List (intersperse)
-import Data.Text (Text)
-import Data.Tuple
-import qualified Data.Vector as VV
-import FRP.Rhine
-import FRP.Rhine.Gloss
-import GHC.Float
-import Inference
-import Linear (V2)
-import qualified Linear as L
-import Linear.V2 (V2 (..))
-import Numeric.Log
+import FRP.Rhine hiding (Result)
+import FRP.Rhine.Gloss hiding (Result)
+import GHC.Float (double2Float)
+import Linear (V2 (..))
+import Numeric.Log (Log (ln))
 import Witch (into)
-import Prelude hiding (Real)
-import Util
-import qualified Debug.Trace as Debug
-import qualified Control.Category as C
-import Control.Monad.Bayes.Population (PopulationT)
-
-std :: Double
-std = 1
-
-type Real = Double
 
 type Observation = V2 Double
-
 type Position = V2 Double
 
-prior :: SignalFunction Stochastic () Position
--- prior :: () >--> Position
-prior = proc _ -> do
-  x <-brownianMotion1D-< ()
-  y <-brownianMotion1D-< ()
-  returnA -< V2 x y
-
-
--- observationModel :: Position >--> Observation
-observationModel :: SignalFunction Stochastic Position Observation
-observationModel = proc p -> do
-  xNoise <-(uncorrelated (normal 0 std))-< ()
-  yNoise <-(uncorrelated (normal 0 std))-< ()
-  returnA -< p + V2 xNoise yNoise
-
-
--- posterior :: Observation >-/-> Position
-posterior :: SignalFunction (Stochastic & Unnormalized) Observation Position
-posterior = proc obs -> do
-  latent <-prior-< ()
-  _ <-weightBy-< normal2D obs latent
-  returnA-< latent
-
-inference :: Observation >--> Array (Position, Weight)
-inference = particleFilter params posterior
-
-
-particleFilter' ::
-  forall a b.
-  SignalFunction (Stochastic & Unnormalized) a b ->
-  SignalFunction Stochastic a (Array (b, Weight))
-particleFilter' _ = undefined 
-
--- a >--> b ~= a -> Dist (b, a >--> b)
-
-gloss :: Text >--> Picture
-gloss = proc _ -> do
-  actualPosition <-prior-< ()
-  measuredPosition <-observationModel-< actualPosition
-  samples <-(particleFilter params posterior)-< measuredPosition
-  renderObjects
-    -<
-      Result
-        measuredPosition
-        actualPosition
-        samples
-
-posteriorWeak :: Observation >-/-> Position
-posteriorWeak = proc (V2 oX oY) -> do
-  (trueX, trueY) <- randomPosition &&& randomPosition -< ()
-  observe -< normalPdf oY std trueY * normalPdf oX std trueX
-  returnA -< V2 trueX trueY
-  where
-    randomPosition = constM do
-      uniform01 <- random
-      return (10 * (uniform01 - 0.5))
-
-weakPrior :: Text >--> Picture
-weakPrior = proc _ -> do
-  actualPosition <- prior -< ()
-  measuredPosition <- observationModel -< actualPosition
-  samples <- particleFilter params posteriorWeak -< measuredPosition
-  renderObjects
-    -<
-      Result
-        { particles = samples,
-          measured = measuredPosition,
-          latent = actualPosition
-        }
-
-brownianMotion1D :: () >--> Double
-brownianMotion1D = proc _ -> do
-  dacceleration <- constM (normal 0 8) -< ()
-  acceleration <- decayingIntegral 1 -< dacceleration
-  velocity <- decayingIntegral 1 -< acceleration -- Integral, dying off exponentially
-  position <- decayingIntegral 1 -< velocity
-  returnA -< position
-
-
-decayingIntegral :: (Floating (Diff (Time cl)) ,Monad m, VectorSpace c (Diff (Time cl))) => 
-  Diff (Time cl) -> ClSF m cl c c
-decayingIntegral timeConstant = average timeConstant >>> arr (timeConstant *^)
-
-
-type Weight = Log Double
-type Array = []
-
-normal2D (V2 oX oY) (V2 trueX trueY) = normalPdf oY std trueY * normalPdf oX std trueX
-
-weightBy :: MonadFactor m => MSF m (Log Double) ()
-weightBy = observe
-
--- | Harmonic oscillator with white noise
-stochasticOscillator ::
-  -- | Starting position
-  Double ->
-  -- | Starting velocity
-  Double ->
-  SignalFunction Stochastic Double Double
-stochasticOscillator initialPosition initialVelocity = feedback 0 $ proc (stdDev, position') -> do
-  impulse <- arrM (normal 0) -< stdDev
-  let acceleration = (-3) * position' + impulse
-  velocity <- arr (+ initialVelocity) <<< decayingIntegral 100 -< acceleration
-  position <- integralFrom initialPosition -< velocity
-  returnA -< (position, position)
-
--- countCrosses :: SignalFunction Deterministic Position Int
-countCrosses :: Monad m => MSF m (V2 Double) Int
-countCrosses = proc pos -> do
-  isInsideRadius <- arr ((> 0.5) . L.norm) -< pos
-  bool <- edge -< isInsideRadius
-  returnA -< bool
-
-postPred :: SignalFunction (Stochastic & Unnormalized) Observation (Position, Int)
-postPred = proc obs -> do
-  inferredPos <- posterior -< obs
-  numTimesCrossRadius <- countCrosses -< inferredPos
-  returnA -< (inferredPos, numTimesCrossRadius)
-
-main :: SignalFunction Stochastic UserInput Picture
-main = proc _ -> do
-  actualPos <- prior -< ()
-  measPos <- observationModel -< actualPos
-  samples <- particleFilter params postPred -< measPos
-  numberOfCrosses <- arr toTable -< samples
-  objects <- renderObjects -< Result measPos actualPos (first fst <$> samples)
-  probTable <- visualizeTable -< numberOfCrosses
-  returnA -< objects <> probTable
-
-
-
-moveAwayFrom :: SignalFunction Stochastic Position Position
-moveAwayFrom = feedback 0 proc (otherBall, prevPos) -> do
-  dacceleration <- constM (normal 0 8) &&& constM (normal 0 8) -< ()
-  acceleration <- decayingIntegral 1 -< uncurry V2 dacceleration
-  let repulsion =
-        fmap
-          (savediv (safeNorm (prevPos - otherBall)))
-          (prevPos - otherBall)
-  velocity <- decayingIntegral 1 -< acceleration + repulsion -- Integral, dying off exponentially
-  position <- decayingIntegral 1 -< velocity
-
-  returnA -< (position, position)
-
-uncorrelated :: Monad m => m b -> MSF m a b
-uncorrelated = constM
-
-----------
--- display
-----------
-
-
-toTable :: (Show b, Ord b) => [((a, b), Log Double)] -> [String]
-toTable = intersperse "\n" . fmap (\(x, p) -> "Number: " <> show x <> "       Probability: " <> show p) . enumerate . empirical . fmap (first snd)
-
-empirical :: MonadDistribution m => [(b, Log Double)] -> m b
-empirical ls = do
-  let (vs, ps) = unzip ls
-  i <- logCategorical $ VV.fromList ps
-  return (vs !! i)
-
-edge :: Monad m => MSF m Bool Int
-edge = feedback 0 proc (b, prev) -> do
-  oldB <- iPre True -< b
-  returnA -< (prev + if oldB == b then 0 else 1, prev + if oldB == b then 0 else 1)
-
-edge' :: Monad m => MSF m Bool Bool
-edge' = feedback False proc (b, prev) -> do
-  returnA -< (prev == b, b)
-
-edgeBy :: Monad m => (a -> Bool) -> MSF m a Int
-edgeBy p = proc a -> do
-  b <- arr p -< a
-  e <- edge -< b
-  returnA -< e
-
-
-renderObjects :: Monad m => MSF m Result Picture
+renderObjects :: (Monad m) => Automaton m Result Picture
 renderObjects = proc Result {particles, measured, latent} -> do
   observation <- drawBall -< (measured, 0.05, red)
   ball <- drawBall -< (latent, 0.15, makeColorI 255 239 0 255)
-  parts <- fold <$> mapMSF drawParticle -< particles
-  returnA -< (observation <> ball <> parts)
+  parts <- fold <$> parallely drawParticle -< particles
+  returnA -< observation <> ball <> parts
 
-visualizeTable :: Monad m => MSF m [String] Picture
-visualizeTable = proc str -> do
-  let table = translate 0 200 $ scale 0.1 0.1 $ pictures $ [translate 0 (height * 100) $ text l | (l, height) <- zip (reverse str) [1 ..]]
-  let circ = circle 75
-  returnA -< table <> circ
-
-
-
--- drawBall :: MonadIO m => BehaviourF (GlossConcT m) cl (V2 Double, Double, Color) Picture
-drawBall :: Monad m => MSF m (V2 Double, Double, Color) Picture
+drawBall :: (Monad m) => Automaton m (V2 Double, Double, Color) Picture
 drawBall = proc (V2 x y, width, theColor) -> do
   returnA
     -<
@@ -237,29 +28,18 @@ drawBall = proc (V2 x y, width, theColor) -> do
             circleSolid $
               into @Float width
 
-drawParticle :: Monad m => MSF m (Position, Log Double) Picture
+drawParticle :: (Monad m) => Automaton m (Position, Log Double) Picture
 drawParticle = proc (position, probability) -> do
-  drawBall -< (position, 0.1, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) violet)
-  -- drawBall -< (position, 0.2, withAlpha ( (double2Float $ exp $ 0.1 * ln probability)) white)
-  -- drawBall -< (position, 0.1, white)
-
-traceIt x = Debug.trace (show x) x
+  drawBall
+    -<
+      ( position
+      , 0.1
+      , withAlpha (double2Float $ exp $ 0.1 * ln probability) violet
+      )
 
 data Result = Result
-  { --   estimate :: Position
-    -- stdDev :: Double
-    measured :: Observation,
-    latent :: Position,
-    particles :: [(Position, Log Double)]
+  { measured :: Observation
+  , latent :: Position
+  , particles :: [(Position, Log Double)]
   }
   deriving (Show)
-
-
-drawTriangle :: (V2 Double, Double, Float, Color) -> Picture
-drawTriangle (V2 p1 p2, dir, size, col) =
-  Color col $
-    scale 50 50 $
-      translate (into @Float p1) (into @Float p2) $
-        rotate (- (360 / (2 * pi)) * into @Float dir) $
-          scale size size $
-            polygon [(0, 0.5), (0, -0.5), (2, 0), (0, 0.5)]
