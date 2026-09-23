@@ -4,15 +4,33 @@
     <meta charset="utf-8" />
     <title>demo1 · particle tracker</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f6f6f6; }
-      #sim { display: block; background: #111; border: 1px solid #ccc; cursor: crosshair; }
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f0f2f5; }
+      #sim { display: block; background: #ffffff; border: 1px solid #c8ced6; cursor: crosshair; }
+      .controls { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      button {
+        font-size: 0.95rem;
+        padding: 0.45rem 0.9rem;
+        border: 1px solid #c8ced6;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      button:active { background: #e8eef8; }
       #status { margin-top: 0.75rem; color: #444; font-size: 0.9rem; }
     </style>
   </head>
   <body>
     <h1>Tutorial.demo1 (WASM)</h1>
-    <p>Yellow = latent, red = observation, purple = particles. Same structure as <code>src/Tutorial.hs</code>.</p>
-    <canvas id="sim" width="640" height="480"></canvas>
+    <p>
+      Teal = latent, coral = observation, indigo = particles.
+      Shared core: <code>src/Tutorial.hs</code>.
+    </p>
+    <canvas id="sim" width="960" height="720"></canvas>
+    <div class="controls">
+      <button type="button" data-btn="particles">Toggle particles</button>
+      <button type="button" data-btn="observations">Toggle observations</button>
+      <button type="button" data-btn="prior">Cycle prior (harmonic / brownian / mouse)</button>
+    </div>
     <p id="status">Loading WASM…</p>
     <script type="module" src="./run.js"></script>
   </body>
